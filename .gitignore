@@ -1,0 +1,54 @@
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# VS Code settings
+.vscode/
+
+# Environment files (boleh dihapus jika mau push .env)
+.env
+*.env
+.venv
+
+# Byte-compiled / optimized / DLL files
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+
+# Jupyter Notebook checkpoints
+.ipynb_checkpoints/
+
+# Logs
+*.log
+logs/
+*.out
+
+# Temporary files
+*.tmp
+*~
+tmp/
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# SQLite or local files
+*.db
+*.sqlite3
+
+# Uploads or generated files
+uploads/
+outputs/
+artifacts/
+
+# PySpark temp
+.sparkStaging/
+
+# FastAPI static build (opsional)
+static/

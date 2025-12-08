@@ -10,7 +10,7 @@ Endpoint:
 
 Cara jalanin:
 1) pip install fastapi uvicorn pandas scikit-learn xgboost joblib openpyxl
-2) uvicorn fuel_burn_api:app --host 0.0.0.0 --port 8000 --reload
+2) uvicorn fuel_burn_api:app --host 0.0.0.0 --port 8600 --reload
 """
 
 import os

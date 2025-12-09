@@ -294,3 +294,10 @@ def predict_endpoint(req: PredictRequest):
     preds = [float(p) for p in preds]
 
     return PredictResponse(predictions=preds)
+
+
+if __name__ == "__main__":
+
+    import uvicorn
+
+    uvicorn.run("fuel_burn_api:app", host="0.0.0.0", port=8600, reload=True)

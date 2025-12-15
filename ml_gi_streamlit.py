@@ -23,6 +23,8 @@ API_FB_TRAIN   = f"{BASE_API}/train_fb"
 API_VM_PREDICT = f"{BASE_API}/predict_vm"
 API_VM_TRAIN   = f"{BASE_API}/train_vm"
 
+API_PC_PREDICT = f"{BASE_API}/predict_pc"
+API_PC_TRAIN   = f"{BASE_API}/train_pc"
 # ==================================================
 # KONFIGURASI FILE DATA (UNTUK DROPDOWN DEFAULT)
 # ==================================================
@@ -84,6 +86,37 @@ CATEGORICAL_COLS_FB = [
 NUMERIC_COLS_FB = [c for c in SELECTED_FEATURES_FB if c not in CATEGORICAL_COLS_FB]
 
 
+# PC
+
+RENAME_MAP_PC = {
+    "FLIGHT KILOMETERS": "FLIGHT_KILOMETERS",
+    "SEAT OFFERED": "SEAT_OFFERED",
+    "PASSENGER CARRIED" : "PASSENGER_CARRIED",
+    "PASSENGER COMMISSION": "PASSENGER_COMMISSION",
+    "BLOCK HOURS": "BLOCK_HOURS",
+    "FUEL AIRCRAFT": "FUEL_AIRCRAFT",
+
+    "RPK (000) C CLASS": "RPK_000_C_CLASS",
+    "RTK (000)": "RTK_000",
+    "RPK (000)": "RPK_000",
+    "RTK PASSENGER (000)": "RTK_PASSENGER_000",
+    "RPK (000) Y CLASS": "RPK_000_Y_CLASS",
+    "ASK (000) C CLASS": "ASK_000_C_CLASS",
+    "PASSENGER CARRIED C CLASS": "PASSENGER_CARRIED_C_CLASS"
+}
+
+SELECTED_FEATURES_PC = [
+    "RPK_000_C_CLASS",
+    "RTK_000",
+    "RPK_000",
+    "RTK_PASSENGER_000",
+    "RPK_000_Y_CLASS",
+    "ASK_000_C_CLASS",
+    "PASSENGER_CARRIED_C_CLASS"
+]
+
+SELECTED_FEATURES_PC = SELECTED_FEATURES_PC + ["PASSENGER_COMMISSION"]
+
 # ==================================================
 # PAGE CONFIG
 # ==================================================
@@ -99,7 +132,7 @@ st.sidebar.title("🧭 Navigation")
 
 model_menu = st.sidebar.radio(
     "📦 Model",
-    ["Fuel Burn", "Variable Maintenance"],
+    ["Fuel Burn", "Variable Maintenance", "Passenger Commission"],
 )
 
 action_menu = st.sidebar.radio(
@@ -470,5 +503,122 @@ elif model_menu == "Variable Maintenance":
                     st.error(f"Training gagal — Error {resp.status_code}")
                     st.text(resp.text)
 
+            except Exception as e:
+                st.error(f"Gagal menghubungi API: {e}")
+
+
+
+# =========================
+# PASSENGER COMMISION MODEL
+# =========================
+
+elif model_menu == "Passenger Commission":
+
+    st.title("✈️ Passenger Commission Predictor (LightGBM + API)")
+
+    if action_menu == "Predict":
+        st.header("📈 Prediksi Passenger Commission ($)")
+
+        sample_row = pd.read_csv("sample\sample.csv").rename(columns=RENAME_MAP_PC).iloc[0]
+        
+        actual = sample_row["PASSENGER_COMMISSION"]
+
+        st.caption("Default value diisi dari salah satu contoh flight di dataset.")
+
+        # =====================
+        # Input fitur
+        # =====================
+        with st.form("predict_form"):
+            col_cat1, col_cat2 = st.columns(2)
+            col_cat3, col_cat4 = st.columns(2)
+            col_cat5, _ = st.columns(2)
+
+            st.subheader("Fitur Numerik")
+
+            num_cols1, num_cols2, num_cols3 = st.columns(3)
+
+            RPK_000_C_CLASS = num_cols1.number_input(
+                "RPK_000_C_CLASS", value=float(sample_row["RPK_000_C_CLASS"])
+            )
+
+            RTK_000 = num_cols2.number_input(
+                "RTK_000", value=float(sample_row["RTK_000"])
+            )
+
+            RPK_000 = num_cols3.number_input(
+                "RPK_000", value=float(sample_row["RPK_000"])
+            )
+
+            RTK_PASSENGER_000 = num_cols1.number_input(
+                "RTK_PASSENGER_000", value=float(sample_row["RTK_PASSENGER_000"])
+            )
+
+            RPK_000_Y_CLASS = num_cols2.number_input(
+                "RPK_000_Y_CLASS", value=float(sample_row["RPK_000_Y_CLASS"])
+            )
+            
+            ASK_000_C_CLASS = num_cols3.number_input(
+                "ASK_000_C_CLASS", value=float(sample_row["ASK_000_C_CLASS"])
+            )
+            
+            PASSENGER_CARRIED_C_CLASS = num_cols1.number_input(
+                "PASSENGER_CARRIED_C_CLASS", value=float(sample_row["PASSENGER_CARRIED_C_CLASS"])
+            )
+
+            submitted = st.form_submit_button("🔮 Prediksi Passenger Commission")
+
+        if submitted:
+            record = {
+                "RPK_000_C_CLASS" : RPK_000_C_CLASS,
+                "RTK_000" : RTK_000,
+                "RPK_000": RPK_000,
+                "RTK_PASSENGER_000":RTK_PASSENGER_000,
+                "RPK_000_Y_CLASS":RPK_000_Y_CLASS,
+                "ASK_000_C_CLASS":ASK_000_C_CLASS,
+                "PASSENGER_CARRIED_C_CLASS": PASSENGER_CARRIED_C_CLASS
+            }
+
+            try:
+                with st.spinner("Meminta prediksi ke API..."):
+                    resp = requests.post(
+                        API_PC_PREDICT, json={"records": [record]}
+                    )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    pred = data["predictions"][0]
+                    st.success("Prediksi berhasil ✅")
+                    st.metric("Perkiraan Passenger Commission", f"{pred:,.2f}")
+                    st.json(data)
+                    st.text( f"{actual:,.2f}")
+                else:
+                    st.error(f"Error {resp.status_code}: {resp.text}")
+            except Exception as e:
+                st.error(f"Gagal menghubungi API: {e}")
+
+    elif action_menu == "Train":
+        st.header("🔁 Latih / Retrain Model Passenger Commision")
+        st.write("""
+            Endpoint ini akan membaca dataset yang sudah ditentukan di API (`EXCEL_PATH`),
+            melakukan preprocessing, training ulang LightGBM, kemudian menyimpan model baru.
+        """)
+
+        st.warning("""
+        ⚠️ Perhatian:
+        - Proses training bisa memakan waktu (tergantung size dataset).
+        - Model lama akan di-*overwrite* oleh model baru.
+        """)
+
+        if st.button("Train sekarang"):
+            try:
+                with st.spinner("Training model di server API..."):
+                    resp = requests.post(API_PC_TRAIN)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    st.success("Training selesai ✅")
+                    st.json(data)
+                    st.metric("MAPE (%)", f"{data['mape_percent']:.2f}")
+                    st.metric("RMSE (liter)", f"{data['rmse']:.2f}")
+                else:
+                    st.error(f"Error {resp.status_code}: {resp.text}")
             except Exception as e:
                 st.error(f"Gagal menghubungi API: {e}")

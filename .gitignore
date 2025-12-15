@@ -10,6 +10,7 @@ __pycache__/
 # Environment files (boleh dihapus jika mau push .env)
 *.env
 *.venv
+/venv
 
 # Byte-compiled / optimized / DLL files
 *.py[cod]

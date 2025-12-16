@@ -147,8 +147,8 @@ st.sidebar.caption("Single API • XGBoost Models")
 # HELPER: LOAD DATA SAMPLE
 # ==================================================
 
-df_sample = pd.read_csv("sample\sample.csv")
-df_filter = pd.read_csv("sample\df_filter.csv")
+df_sample = pd.read_csv("sample/sample.csv")
+df_filter = pd.read_csv("sample/df_filter.csv")
 
 # ==================================================
 # MAIN CONTENT
@@ -519,7 +519,7 @@ elif model_menu == "Passenger Commission":
     if action_menu == "Predict":
         st.header("📈 Prediksi Passenger Commission ($)")
 
-        sample_row = pd.read_csv("sample\sample.csv").rename(columns=RENAME_MAP_PC).iloc[0]
+        sample_row = df_sample.copy().rename(columns=RENAME_MAP_PC).iloc[0]
         
         actual = sample_row["PASSENGER_COMMISSION"]
 

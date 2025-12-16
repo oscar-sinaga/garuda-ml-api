@@ -18,22 +18,29 @@ pip install -r requirements.txt
 
 ## 2. Run 
 
-### **fuel_burn_api**
+### **Run All Complete**
+```bash
+python ml_gi_api.py
+streamlit run ml_gi_streamlit.py
+```
+### **Each**
+
+#### **fuel_burn_api**
 ```bash
 python fuel_burn_api.py
 ```
 
-### **fuel_burn_streamlit**
+#### **fuel_burn_streamlit**
 ```bash
 streamlit run fuel_burn_streamlit.py 
 ```
 
-### **vm_api**
+#### **vm_api**
 ```bash
 python vm_api.py
 ```
 
-### **vm_streamlit**
+#### **vm_streamlit**
 ```bash
 streamlit run vm_streamlit.py --server.port 8502
 ```

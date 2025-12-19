@@ -8,6 +8,12 @@ Unified Streamlit App
 Menggunakan 1 FastAPI backend (API gabungan)
 """
 
+
+# How to run:
+# 1. uvicorn ml_gi_api:app --host 0.0.0.0 --port 8600 --reload
+# 2. streamlit run ml_gi_streamlit.py
+
+
 import streamlit as st
 import pandas as pd
 import requests
@@ -25,6 +31,9 @@ API_VM_TRAIN   = f"{BASE_API}/train_vm"
 
 API_PC_PREDICT = f"{BASE_API}/predict_pc"
 API_PC_TRAIN   = f"{BASE_API}/train_pc"
+
+API_RESERVATION_PREDICT = f"{BASE_API}/predict_reservation"
+API_RESERVATION_TRAIN   = f"{BASE_API}/train_reservation"
 # ==================================================
 # KONFIGURASI FILE DATA (UNTUK DROPDOWN DEFAULT)
 # ==================================================
@@ -117,6 +126,42 @@ SELECTED_FEATURES_PC = [
 
 SELECTED_FEATURES_PC = SELECTED_FEATURES_PC + ["PASSENGER_COMMISSION"]
 
+
+# RESERVATION
+
+RENAME_MAP_RESERVATION = {
+            'PASSENGER CARRIED': 'PASSENGER_CARRIED', 
+            'PASSENGER CARRIED Y CLASS': 'PASSENGER_CARRIED_Y_CLASS', 
+            'PASSENGER CARRIED C CLASS': 'PASSENGER_CARRIED_C_CLASS', 
+            'CARGO CARRIED': 'CARGO_CARRIED',
+            'FREIGHT CARRIED': 'FREIGHT_CARRIED',
+            'PASSENGER COMMISSION': 'PASSENGER_COMMISSION',
+            'BLOCK HOURS': 'BLOCK_HOURS',
+            'RPK (000)': 'RPK_000', 
+            'RPK (000) Y CLASS': 'RPK_000_Y_CLASS', 
+            'SEAT OFFERED': 'SEAT_OFFERED', 
+            'SEAT OFFERED Y CLASS': 'SEAT_OFFERED_Y_CLASS',
+            'FLIGHT ROUTE': 'FLIGHT_ROUTE', 
+            'SERVICE TYPE': 'SERVICE_TYPE', 
+            'AIRCRAFT TYPE': 'AIRCRAFT_TYPE', 
+            'Region': 'REGION'
+        }
+
+SELECTED_FEATURES_RESERVATION = ['PASSENGER_CARRIED', 
+                     'PASSENGER_CARRIED_Y_CLASS', 
+                     'PASSENGER_CARRIED_C_CLASS', 
+                     'CARGO_CARRIED',
+                     'RPK_000', 
+                     'RPK_000_Y_CLASS', 
+                     'SEAT_OFFERED', 
+                     'SEAT_OFFERED_Y_CLASS',
+                     'FLIGHT_ROUTE', 
+                     'SERVICE_TYPE', 
+                     'AIRCRAFT_TYPE', 
+                     'REGION']
+
+SELECTED_FEATURES_RESERVATION = SELECTED_FEATURES_RESERVATION + ["RESERVATION"]
+
 # ==================================================
 # PAGE CONFIG
 # ==================================================
@@ -132,7 +177,7 @@ st.sidebar.title("🧭 Navigation")
 
 model_menu = st.sidebar.radio(
     "📦 Model",
-    ["Fuel Burn", "Variable Maintenance", "Passenger Commission"],
+    ["Fuel Burn", "Variable Maintenance", "Passenger Commission", "Reservation"],
 )
 
 action_menu = st.sidebar.radio(
@@ -149,6 +194,7 @@ st.sidebar.caption("Single API • XGBoost Models")
 
 df_sample = pd.read_csv("sample/sample.csv")
 df_filter = pd.read_csv("sample/df_filter.csv")
+df_filter1 = pd.read_csv("sample/df_filter1.csv")
 
 # ==================================================
 # MAIN CONTENT
@@ -622,3 +668,172 @@ elif model_menu == "Passenger Commission":
                     st.error(f"Error {resp.status_code}: {resp.text}")
             except Exception as e:
                 st.error(f"Gagal menghubungi API: {e}")
+
+
+# ============
+# RESERVATION
+# ============
+
+elif model_menu == "Reservation":
+
+    st.title("✈️ Reservation Predictor (XGBoost + API)")
+
+    if action_menu == "Predict":
+        st.header("📈 Prediksi Reservation ($)")
+        
+        sample_row = df_sample.copy().rename(columns=RENAME_MAP_RESERVATION).iloc[0]
+
+        df_filter_res = df_filter1.copy().rename(columns=RENAME_MAP_RESERVATION)
+        
+        actual = sample_row["RESERVATION"]
+
+        st.caption("Default value diisi dari salah satu contoh flight di dataset.")
+
+        # =====================
+        # Input fitur
+        # =====================
+        with st.form("predict_form"):
+            col_cat1, col_cat2 = st.columns(2)
+            col_cat3, col_cat4 = st.columns(2)
+            col_cat5, _ = st.columns(2)
+
+            stype_options = sorted(df_filter_res["SERVICE_TYPE"].dropna().unique())
+            froute_options = sorted(df_filter_res["FLIGHT_ROUTE"].dropna().unique())
+            actype_options = sorted(df_filter_res["AIRCRAFT_TYPE"].dropna().unique())
+            region_options = sorted(df_filter_res["REGION"].dropna().unique())
+
+            def default_index(options, value):
+                try:
+                    return list(options).index(value)
+                except ValueError:
+                    return 0
+                
+            SERVICE_TYPE = col_cat1.selectbox(
+                "SERVICE_TYPE",
+                stype_options,
+                index=default_index(stype_options, sample_row["SERVICE_TYPE"])
+            )
+
+            AIRCRAFT_TYPE = col_cat2.selectbox(
+                "AIRCRAFT_TYPE",
+                actype_options,
+                index=default_index(actype_options, sample_row["AIRCRAFT_TYPE"]),
+            )
+
+            FLIGHT_ROUTE = col_cat3.selectbox(
+                "FLIGHT_ROUTE",
+                froute_options,
+                index=default_index(froute_options, sample_row["FLIGHT_ROUTE"]),
+            )
+
+            REGION = col_cat4.selectbox(
+                "REGION",
+                region_options,
+                index=default_index(region_options, sample_row["REGION"]),
+            )
+
+
+            st.markdown("---")
+            st.subheader("Fitur Numerik")
+
+            num_cols1, num_cols2, num_cols3 = st.columns(3)
+
+            PASSENGER_CARRIED = num_cols1.number_input(
+                "PASSENGER_CARRIED", value=float(sample_row["PASSENGER_CARRIED"])
+            )
+
+            PASSENGER_CARRIED_Y_CLASS = num_cols2.number_input(
+                "PASSENGER_CARRIED_Y_CLASS", value=float(sample_row["PASSENGER_CARRIED_Y_CLASS"])
+            )
+
+            PASSENGER_CARRIED_C_CLASS = num_cols3.number_input(
+                "PASSENGER_CARRIED_C_CLASS", value=float(sample_row["PASSENGER_CARRIED_C_CLASS"])
+            )
+
+            CARGO_CARRIED =  num_cols1.number_input(
+                "CARGO_CARRIED", value=float(sample_row["CARGO_CARRIED"])
+            )
+            
+            RPK_000 = num_cols2.number_input(
+                "RPK_000", value=float(sample_row["RPK_000"])
+            )
+
+            RPK_000_Y_CLASS =num_cols3.number_input(
+                "RPK_000_Y_CLASS", value=float(sample_row["RPK_000_Y_CLASS"])
+            ) 
+            SEAT_OFFERED =num_cols1.number_input(
+                "SEAT_OFFERED", value=float(sample_row["SEAT_OFFERED"])
+            )
+
+            SEAT_OFFERED_Y_CLASS =num_cols2.number_input(
+                "SEAT_OFFERED_Y_CLASS", value=float(sample_row["SEAT_OFFERED_Y_CLASS"])
+            )
+
+
+            # =====================================
+            # SUBMIT BUTTON
+            # =====================================
+
+            submitted = st.form_submit_button("🔮 Prediksi Reservation")
+
+        if submitted:
+            record = {
+                'PASSENGER_CARRIED': PASSENGER_CARRIED, 
+                'PASSENGER_CARRIED_Y_CLASS': PASSENGER_CARRIED_Y_CLASS, 
+                'PASSENGER_CARRIED_C_CLASS': PASSENGER_CARRIED_C_CLASS, 
+                'CARGO_CARRIED': CARGO_CARRIED,
+                'RPK_000': RPK_000, 
+                'RPK_000_Y_CLASS': RPK_000_Y_CLASS, 
+                'SEAT_OFFERED': SEAT_OFFERED, 
+                'SEAT_OFFERED_Y_CLASS': SEAT_OFFERED_Y_CLASS,
+                'FLIGHT_ROUTE': FLIGHT_ROUTE, 
+                'SERVICE_TYPE': SERVICE_TYPE, 
+                'AIRCRAFT_TYPE': AIRCRAFT_TYPE,
+                'REGION': REGION
+            }
+
+            try:
+                with st.spinner("Meminta prediksi ke API..."):
+                    resp = requests.post(
+                        API_RESERVATION_PREDICT, json={"records": [record]}
+                    )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    pred = data["predictions"][0]
+                    st.success("Prediksi berhasil ✅")
+                    st.metric("Perkiraan Reservation ($)", f"{pred:,.2f}")
+                    st.json(data)
+                    st.text( f"{actual:,.2f}")
+                else:
+                    st.error(f"Error {resp.status_code}: {resp.text}")
+            except Exception as e:
+                st.error(f"Gagal menghubungi API: {e}")
+
+    elif action_menu == "Train":
+        st.header("🔁 Latih / Retrain Model Reservation")
+        st.write("""
+            Endpoint ini akan membaca dataset yang sudah ditentukan di API (`EXCEL_PATH`),
+            melakukan preprocessing, training ulang XGBoost, kemudian menyimpan model baru.
+        """)
+
+        st.warning("""
+        ⚠️ Perhatian:
+        - Proses training bisa memakan waktu (tergantung size dataset).
+        - Model lama akan di-*overwrite* oleh model baru.
+        """)
+
+        if st.button("Train sekarang"):
+            try:
+                with st.spinner("Training model di server API..."):
+                    resp = requests.post(API_RESERVATION_TRAIN)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    st.success("Training selesai ✅")
+                    st.json(data)
+                    st.metric("MAPE (%)", f"{data['mape_percent']:.2f}")
+                    st.metric("RMSE (liter)", f"{data['rmse']:.2f}")
+                else:
+                    st.error(f"Error {resp.status_code}: {resp.text}")
+            except Exception as e:
+                st.error(f"Gagal menghubungi API: {e}")
+

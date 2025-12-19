@@ -23,7 +23,7 @@ SHEET_NAME = "Raw"
 VM_MODEL_PATH = "models/vm_xgb.joblib"
 FB_MODEL_PATH = "models/fuel_burn_xgb.joblib"
 PC_MODEL_PATH = "models/passenger_commission_lgbm.joblib"
-
+R_MODEL_PATH = "models/reservation_xgb.joblib"
 
 
 
@@ -93,6 +93,28 @@ SELECTED_FEATURES_PC = [
 
 TARGET_COL_PC = "PASSENGER_COMMISSION"
 
+# RESERVATION features
+SELECTED_FEATURES_RESERVATION = ['PASSENGER_CARRIED', 
+                     'PASSENGER_CARRIED_Y_CLASS', 
+                     'PASSENGER_CARRIED_C_CLASS', 
+                     'CARGO_CARRIED',
+                     'RPK_000', 
+                     'RPK_000_Y_CLASS', 
+                     'SEAT_OFFERED', 
+                     'SEAT_OFFERED_Y_CLASS',
+                     'FLIGHT_ROUTE', 
+                     'SERVICE_TYPE', 
+                     'AIRCRAFT_TYPE', 
+                     'REGION']
+
+TARGET_COL_RESERVATION = "RESERVATION"
+
+CATEGORICAL_COLS_RESERVATION = ['SERVICE_TYPE', 
+                                'FLIGHT_ROUTE', 
+                                'AIRCRAFT_TYPE', 
+                                'REGION']
+
+NUMERICAL_COLS_RESERVATION = list(set(SELECTED_FEATURES_RESERVATION) - set(CATEGORICAL_COLS_RESERVATION))
 
 
 # =====================================================================
@@ -195,7 +217,32 @@ class PC_TrainResponse(BaseModel):
     n_train: int
     n_test: int
 
+class ReservationRecord(BaseModel):
+    PASSENGER_CARRIED : float
+    PASSENGER_CARRIED_Y_CLASS : float
+    PASSENGER_CARRIED_C_CLASS : float
+    CARGO_CARRIED: float
+    RPK_000 : float
+    RPK_000_Y_CLASS : float
+    SEAT_OFFERED : float
+    SEAT_OFFERED_Y_CLASS: float
+    FLIGHT_ROUTE: str
+    SERVICE_TYPE: str
+    AIRCRAFT_TYPE: str
+    REGION: str
 
+class ReservationPredictRequest(BaseModel):
+    records: List[ReservationRecord]
+
+class ReservationPredictResponse(BaseModel):
+    predictions: List[float]
+
+class ReservationTrainResponse(BaseModel):
+    mape: float          # dalam desimal, misal 0.05 = 5%
+    mape_percent: float  # dalam persen
+    rmse: float
+    n_train: int
+    n_test: int
 
 # =====================================================================
 # GLOBAL CACHE
@@ -208,6 +255,7 @@ _fb_artifacts = None
 
 _pc_model_artifacts = None
 
+_reservation_model_artifacts = None
 
 # =====================================================================
 # LOAD ARTIFACTS
@@ -256,6 +304,20 @@ def load_pc_artifacts():
     _pc_model_artifacts = joblib.load(PC_MODEL_PATH)
     return _pc_model_artifacts
 
+def load_reservation_artifacts():
+    """Load model & encoder dari disk jika belum ada di cache."""
+    global _reservation_model_artifacts
+    if _reservation_model_artifacts is not None:
+        return _reservation_model_artifacts
+
+    if not os.path.exists(R_MODEL_PATH):
+        raise RuntimeError(
+            f"Model belum dilatih. Jalankan endpoint /train dulu. "
+            f"File tidak ditemukan: {R_MODEL_PATH}"
+        )
+
+    _reservation_model_artifacts = joblib.load(R_MODEL_PATH)
+    return _reservation_model_artifacts
 
 # =====================================================================
 # TRAINING FUNCTION
@@ -589,6 +651,106 @@ def train_pc_model():
         "n_test": int(len(X_test)),
     }
 
+
+def train_reservation_model():
+     """Train, simpan artifacts, dan return metrics."""
+     global _reservation_model_artifacts
+     
+     def load_training_data() -> pd.DataFrame:
+        if not os.path.exists(EXCEL_PATH):
+            raise RuntimeError(f"File Excel tidak ditemukan: {EXCEL_PATH}")
+
+        df = pd.read_excel(EXCEL_PATH, sheet_name=SHEET_NAME, skiprows=1)
+        df = df.iloc[:, 1:]  # buang kolom index pertama
+
+        RENAME_MAP = {
+            'PASSENGER CARRIED': 'PASSENGER_CARRIED', 
+            'PASSENGER CARRIED Y CLASS': 'PASSENGER_CARRIED_Y_CLASS', 
+            'PASSENGER CARRIED C CLASS': 'PASSENGER_CARRIED_C_CLASS', 
+            'CARGO CARRIED': 'CARGO_CARRIED',
+            'FREIGHT CARRIED': 'FREIGHT_CARRIED',
+            'PASSENGER COMMISSION': 'PASSENGER_COMMISSION',
+            'BLOCK HOURS': 'BLOCK_HOURS',
+            'RPK (000)': 'RPK_000', 
+            'RPK (000) Y CLASS': 'RPK_000_Y_CLASS', 
+            'SEAT OFFERED': 'SEAT_OFFERED', 
+            'SEAT OFFERED Y CLASS': 'SEAT_OFFERED_Y_CLASS',
+            'FLIGHT ROUTE': 'FLIGHT_ROUTE', 
+            'SERVICE TYPE': 'SERVICE_TYPE', 
+            'AIRCRAFT TYPE': 'AIRCRAFT_TYPE', 
+            'Region': 'REGION'
+        }
+
+        df = df.rename(columns=RENAME_MAP)
+
+        ### REMOVE ZEROES
+        df1 = df[(df['CARGO_CARRIED']!=0) & (df['FREIGHT_CARRIED']!=0) & (df['PASSENGER_CARRIED'] != 0) &
+                (df['BLOCK_HOURS']!=0) & (df['RESERVATION']!=0)].copy()
+
+        return df1
+     
+
+     df1 = load_training_data()
+     
+     X = df1[SELECTED_FEATURES_RESERVATION].copy()
+     y = df1[TARGET_COL_RESERVATION].copy()
+
+     X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=42
+    )
+     
+
+     encoder = OneHotEncoder(handle_unknown="ignore", sparse_output=False)
+     encoder.fit(X_train[CATEGORICAL_COLS_RESERVATION])
+     
+     X_train_cat = encoder.transform(X_train[CATEGORICAL_COLS_RESERVATION])
+     X_test_cat = encoder.transform(X_test[CATEGORICAL_COLS_RESERVATION])
+     
+     encoded_cols = encoder.get_feature_names_out(CATEGORICAL_COLS_RESERVATION)
+     
+     X_train_cat_df = pd.DataFrame(
+        X_train_cat, columns=encoded_cols, index=X_train.index
+     )
+     
+     X_test_cat_df = pd.DataFrame(
+        X_test_cat, columns=encoded_cols, index=X_test.index
+        )
+     
+     X_train_final = pd.concat([X_train[NUMERICAL_COLS_RESERVATION], X_train_cat_df], axis=1)
+     X_test_final = pd.concat([X_test[NUMERICAL_COLS_RESERVATION], X_test_cat_df], axis=1)
+
+     model = XGBRegressor(n_estimators=1500, learning_rate=0.01, objective="reg:squarederror")
+     model.fit(X_train_final, y_train)
+
+
+     y_pred = model.predict(X_test_final)
+     
+     mape = mean_absolute_percentage_error(y_test, y_pred)
+     rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+     
+     
+     artifacts = {
+        "model": model,
+        "encoder": encoder,
+        "categorical_cols": CATEGORICAL_COLS_RESERVATION,
+        "numeric_cols": NUMERICAL_COLS_RESERVATION,
+        "selected_features": SELECTED_FEATURES_RESERVATION,
+    }
+     
+     os.makedirs(os.path.dirname(R_MODEL_PATH), exist_ok=True)
+     
+     joblib.dump(artifacts, R_MODEL_PATH)
+     
+     _reservation_model_artifacts = artifacts  # cache di memori
+     
+     return {
+        "mape": float(mape),
+        "mape_percent": float(mape * 100.0),
+        "rmse": float(rmse),
+        "n_train": int(len(X_train)),
+        "n_test": int(len(X_test)),
+    }
+
 # =====================================================================
 # FASTAPI ENDPOINTS
 # =====================================================================
@@ -700,6 +862,47 @@ def predict_pc(req: PCPredictRequest):
     return PC_PredictResponse(predictions=preds)
 
 
+@app.post("/predict_reservation", response_model=ReservationPredictResponse)
+def predict_reservation(req: ReservationPredictRequest):
+    try:
+        artifacts = load_reservation_artifacts()
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
+    model = artifacts["model"]
+    encoder = artifacts["encoder"]
+    categorical_cols = artifacts["categorical_cols"]
+    numeric_cols = artifacts["numeric_cols"]
+
+     # Pydantic -> DataFrame
+    df = pd.DataFrame([r.dict() for r in req.records])
+
+    # Pastikan semua fitur ada
+    missing = [c for c in SELECTED_FEATURES_RESERVATION if c not in df.columns]
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Fitur berikut hilang di request: {missing}",
+        )
+    df_cat = df[categorical_cols]
+    df_num = df[numeric_cols]
+
+    df_cat_enc = encoder.transform(df_cat)
+    enc_cols = encoder.get_feature_names_out(categorical_cols)
+
+    df_cat_enc_df = pd.DataFrame(df_cat_enc, columns=enc_cols, index=df.index)
+
+    X_final = pd.concat([df_num, df_cat_enc_df], axis=1)
+
+
+    preds = model.predict(X_final)
+    preds = [float(p) for p in preds]
+
+    return ReservationPredictResponse(predictions= preds)
+
+
+
+
 # =======================
 # TRAIN
 # =======================
@@ -733,6 +936,16 @@ def train_pc():
     try:
         metrics = train_pc_model()
         return PC_TrainResponse(**metrics)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/train_reservation", response_model=ReservationTrainResponse)
+def train_reservation():
+    """Latih ulang model dari file Excel."""
+    try:
+        metrics = train_reservation_model()
+        return ReservationTrainResponse(**metrics)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

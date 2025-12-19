@@ -105,7 +105,6 @@ SELECTED_FEATURES_RESERVATION = ['PASSENGER_CARRIED',
                      'FLIGHT_ROUTE', 
                      'SERVICE_TYPE', 
                      'AIRCRAFT_TYPE', 
-                     'AIRCRAFT_TYPE_GROUPING', 
                      'REGION']
 
 TARGET_COL_RESERVATION = "RESERVATION"
@@ -113,7 +112,6 @@ TARGET_COL_RESERVATION = "RESERVATION"
 CATEGORICAL_COLS_RESERVATION = ['SERVICE_TYPE', 
                                 'FLIGHT_ROUTE', 
                                 'AIRCRAFT_TYPE', 
-                                'AIRCRAFT_TYPE_GROUPING', 
                                 'REGION']
 
 NUMERICAL_COLS_RESERVATION = list(set(SELECTED_FEATURES_RESERVATION) - set(CATEGORICAL_COLS_RESERVATION))
@@ -231,7 +229,6 @@ class ReservationRecord(BaseModel):
     FLIGHT_ROUTE: str
     SERVICE_TYPE: str
     AIRCRAFT_TYPE: str
-    AIRCRAFT_TYPE_GROUPING: str
     REGION: str
 
 class ReservationPredictRequest(BaseModel):
@@ -681,7 +678,6 @@ def train_reservation_model():
             'FLIGHT ROUTE': 'FLIGHT_ROUTE', 
             'SERVICE TYPE': 'SERVICE_TYPE', 
             'AIRCRAFT TYPE': 'AIRCRAFT_TYPE', 
-            'AIRCRAFT TYPE GROUPING': 'AIRCRAFT_TYPE_GROUPING', 
             'Region': 'REGION'
         }
 
@@ -692,10 +688,12 @@ def train_reservation_model():
                 (df['BLOCK_HOURS']!=0) & (df['RESERVATION']!=0)].copy()
 
         return df1
+     
+
      df1 = load_training_data()
      
      X = df1[SELECTED_FEATURES_RESERVATION].copy()
-     y = df1[TARGET_COL_PC].copy()
+     y = df1[TARGET_COL_RESERVATION].copy()
 
      X_train, X_test, y_train, y_test = train_test_split(
         X, y, test_size=0.2, random_state=42

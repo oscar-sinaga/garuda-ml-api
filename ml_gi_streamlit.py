@@ -850,14 +850,11 @@ elif model_menu == "Maintenance Reserve":
         st.header("🔮 Prediksi Maintenance Reserve")
         st.write("Masukkan parameter operasional untuk memprediksi cadangan maintenance.")
 
-        # Persiapan Data Filter
-        # Asumsi df_filter sudah ada di global scope atau diload sebelumnya
+
         sample_row = df_sample.copy().fillna("").iloc[0]
         df_filter_mr = df_filter.copy().fillna("")
 
-        # ============================
-        # LANGKAH 1 — FILTER KATEGORI
-        # ============================
+
         c_cat1, c_cat2, c_cat3 = st.columns(3)
 
         with c_cat1:
@@ -875,9 +872,7 @@ elif model_menu == "Maintenance Reserve":
             df_filter_mr = df_filter_mr[df_filter_mr['PERIODE'] == PERIODE]
 
         with c_cat3:
-            # Aircraft Type biasanya terikat dengan AC REG, tapi kita biarkan user memilih/memastikan
             available_types = sorted(df_filter_mr['AIRCRAFT TYPE'].astype(str).unique())
-            # Handle jika list kosong setelah filter
             default_idx = 0
             
             AIRCRAFT_TYPE = st.selectbox(
@@ -887,12 +882,9 @@ elif model_menu == "Maintenance Reserve":
 
         st.markdown("---")
 
-        # =====================================
-        # NUMERIC FEATURES (Sesuai Training Script)
-        # =====================================
+
         st.markdown("### ✏️ Masukkan Fitur Operasional")
         
-        # Mengambil nilai default dari sample row jika tersedia, agar user tidak input dari 0
         def_fh = float(sample_row.get("FLIGHT HOURS", 0.0))
         def_landing = float(sample_row.get("NUMBER OF LANDING", 0.0))
         def_fuel = float(sample_row.get("FUEL BURN (IN LITER)", 0.0))
@@ -916,15 +908,11 @@ elif model_menu == "Maintenance Reserve":
             ATK_000 = st.number_input("ATK (000)", min_value=0.0, value=def_atk)
             LEASE_AIRCRAFT = st.number_input("LEASE AIRCRAFT (Rate/Value)", min_value=0.0, value=def_lease)
 
-        # =====================================
-        # SUBMIT BUTTON
-        # =====================================
+
         st.markdown("<br>", unsafe_allow_html=True)
         
         if st.button("🔮 Prediksi MR Sekarang"):
-            
-            # Hitung FH_per_Cycle (Logic sama dengan script training)
-            # Handle division by zero
+
             fh_per_cycle = 0.0
             if NUMBER_OF_LANDING != 0:
                 fh_per_cycle = FLIGHT_HOURS / NUMBER_OF_LANDING
@@ -947,8 +935,7 @@ elif model_menu == "Maintenance Reserve":
             }
 
             try:
-                # Ganti API_MR_PREDICT dengan URL endpoint MR yang sesuai
-                # API_MR_PREDICT = "http://localhost:8000/predict_mr" 
+
                 with st.spinner("Menghubungi API Maintenance Reserve..."):
                     # Pastikan variabel API_MR_PREDICT sudah didefinisikan di config
                     resp = requests.post(API_MR_PREDICT, json={"records": [record]})
@@ -979,7 +966,6 @@ elif model_menu == "Maintenance Reserve":
 
         if st.button("🚀 Train Model MR Sekarang"):
             try:
-                # Ganti API_MR_TRAIN dengan URL endpoint training MR yang sesuai
                 with st.spinner("Sedang melatih model MR di server..."):
                     resp = requests.post(API_MR_TRAIN)
 
@@ -988,7 +974,6 @@ elif model_menu == "Maintenance Reserve":
 
                     data = resp.json()
 
-                    # Menampilkan Metrics
                     c_met1, c_met2, c_met3 = st.columns(3)
                     c_met1.metric("MAPE (%)", f"{data.get('mape_percent', 0):.2f}")
                     c_met2.metric("RMSE", f"{data.get('rmse', 0):.4f}")

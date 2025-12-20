@@ -837,3 +837,171 @@ elif model_menu == "Reservation":
             except Exception as e:
                 st.error(f"Gagal menghubungi API: {e}")
 
+
+
+# =========================
+# VARIABLE MAINTENANCE RESERVE
+# =========================
+elif model_menu == "Maintenance Reserve":
+
+    st.title("🛡️ Maintenance Reserve Prediction")
+
+    if action_menu == "Predict":
+        st.header("🔮 Prediksi Maintenance Reserve")
+        st.write("Masukkan parameter operasional untuk memprediksi cadangan maintenance.")
+
+        # Persiapan Data Filter
+        # Asumsi df_filter sudah ada di global scope atau diload sebelumnya
+        sample_row = df_sample.copy().fillna("").iloc[0]
+        df_filter_mr = df_filter.copy().fillna("")
+
+        # ============================
+        # LANGKAH 1 — FILTER KATEGORI
+        # ============================
+        c_cat1, c_cat2, c_cat3 = st.columns(3)
+
+        with c_cat1:
+            AC_REG = st.selectbox(
+                "Pilih AC REG",
+                sorted(df_filter_mr['AC REG'].astype(str).unique())
+            )
+            df_filter_mr = df_filter_mr[df_filter_mr['AC REG'] == AC_REG]
+
+        with c_cat2:
+            PERIODE = st.selectbox(
+                "Pilih PERIODE",
+                sorted(df_filter_mr['PERIODE'].astype(str).unique())
+            )
+            df_filter_mr = df_filter_mr[df_filter_mr['PERIODE'] == PERIODE]
+
+        with c_cat3:
+            # Aircraft Type biasanya terikat dengan AC REG, tapi kita biarkan user memilih/memastikan
+            available_types = sorted(df_filter_mr['AIRCRAFT TYPE'].astype(str).unique())
+            # Handle jika list kosong setelah filter
+            default_idx = 0
+            
+            AIRCRAFT_TYPE = st.selectbox(
+                "AIRCRAFT TYPE",
+                available_types if available_types else ["Unknown"]
+            )
+
+        st.markdown("---")
+
+        # =====================================
+        # NUMERIC FEATURES (Sesuai Training Script)
+        # =====================================
+        st.markdown("### ✏️ Masukkan Fitur Operasional")
+        
+        # Mengambil nilai default dari sample row jika tersedia, agar user tidak input dari 0
+        def_fh = float(sample_row.get("FLIGHT HOURS", 0.0))
+        def_landing = float(sample_row.get("NUMBER OF LANDING", 0.0))
+        def_fuel = float(sample_row.get("FUEL BURN (IN LITER)", 0.0))
+        def_atk = float(sample_row.get("ATK (000)", 0.0))
+        def_lease = float(sample_row.get("LEASE AIRCRAFT", 0.0))
+
+        col_num1, col_num2 = st.columns(2)
+
+        with col_num1:
+            FLIGHT_HOURS = st.number_input("FLIGHT HOURS", min_value=0.0, value=def_fh)
+            NUMBER_OF_LANDING = st.number_input("NUMBER OF LANDING (Cycles)", min_value=0.0, value=def_landing)
+            
+            # Info tambahan untuk user (Calculated Feature)
+            fh_per_cycle_display = 0.0
+            if NUMBER_OF_LANDING > 0:
+                fh_per_cycle_display = FLIGHT_HOURS / NUMBER_OF_LANDING
+            st.caption(f"ℹ️ FH per Cycle (Auto): {fh_per_cycle_display:.4f}")
+
+        with col_num2:
+            FUEL_BURN_IN_LITER = st.number_input("FUEL BURN (IN LITER)", min_value=0.0, value=def_fuel)
+            ATK_000 = st.number_input("ATK (000)", min_value=0.0, value=def_atk)
+            LEASE_AIRCRAFT = st.number_input("LEASE AIRCRAFT (Rate/Value)", min_value=0.0, value=def_lease)
+
+        # =====================================
+        # SUBMIT BUTTON
+        # =====================================
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        if st.button("🔮 Prediksi MR Sekarang"):
+            
+            # Hitung FH_per_Cycle (Logic sama dengan script training)
+            # Handle division by zero
+            fh_per_cycle = 0.0
+            if NUMBER_OF_LANDING != 0:
+                fh_per_cycle = FLIGHT_HOURS / NUMBER_OF_LANDING
+
+            record = {
+                # Categorical
+                "AC_REG": AC_REG,
+                "PERIODE": PERIODE,
+                "AIRCRAFT_TYPE": AIRCRAFT_TYPE,
+                
+                # Numeric
+                "FLIGHT_HOURS": FLIGHT_HOURS,
+                "FUEL_BURN_IN_LITER": FUEL_BURN_IN_LITER,
+                "NUMBER_OF_LANDING": NUMBER_OF_LANDING,
+                "ATK_000": ATK_000,
+                "LEASE_AIRCRAFT": LEASE_AIRCRAFT,
+                
+                # Derived Feature (Penting karena masuk ke selected_features training)
+                "FH_per_Cycle": fh_per_cycle
+            }
+
+            try:
+                # Ganti API_MR_PREDICT dengan URL endpoint MR yang sesuai
+                # API_MR_PREDICT = "http://localhost:8000/predict_mr" 
+                with st.spinner("Menghubungi API Maintenance Reserve..."):
+                    # Pastikan variabel API_MR_PREDICT sudah didefinisikan di config
+                    resp = requests.post(API_MR_PREDICT, json={"records": [record]})
+
+                if resp.status_code == 200:
+                    result = resp.json()
+                    pred = result['predictions'][0]
+                    
+                    st.success("Prediksi Berhasil 🎉")
+                    st.metric("Prediksi Maintenance Reserve ($)", f"{pred:,.2f}")
+                    
+                    with st.expander("🔍 Lihat Detail JSON Response"):
+                        st.json(result)
+                else:
+                    st.error(f"Error {resp.status_code}: {resp.text}")
+
+            except Exception as e:
+                st.error(f"Gagal menghubungi API: {e}")
+
+    elif action_menu == "Train":
+        st.header("🔁 Latih / Retrain Model Maintenance Reserve")
+        st.write("""
+            Endpoint ini akan membaca dataset, melakukan grouping berdasarkan `AC REG` & `PERIODE`,
+            menghitung `FH_per_Cycle`, dan melatih ulang model XGBoost untuk Maintenance Reserve.
+        """)
+
+        st.info(f"Fitur yang digunakan: FLIGHT HOURS, FUEL BURN, LANDING, ATK, LEASE, AIRCRAFT TYPE, AC REG, PERIODE, FH_per_Cycle.")
+
+        if st.button("🚀 Train Model MR Sekarang"):
+            try:
+                # Ganti API_MR_TRAIN dengan URL endpoint training MR yang sesuai
+                with st.spinner("Sedang melatih model MR di server..."):
+                    resp = requests.post(API_MR_TRAIN)
+
+                if resp.status_code == 200:
+                    st.success("Training Model MR Selesai! 🎉")
+
+                    data = resp.json()
+
+                    # Menampilkan Metrics
+                    c_met1, c_met2, c_met3 = st.columns(3)
+                    c_met1.metric("MAPE (%)", f"{data.get('mape_percent', 0):.2f}")
+                    c_met2.metric("RMSE", f"{data.get('rmse', 0):.4f}")
+                    c_met3.metric("R2 Score", f"{data.get('r2_score', 0):.4f}")
+
+                    st.write(f"**Data Info:** Train Size: {data.get('n_train')}, Test Size: {data.get('n_test')}")
+                    
+                    st.subheader("📄 Detail Response")
+                    st.json(data)
+
+                else:
+                    st.error(f"Training gagal — Error {resp.status_code}")
+                    st.text(resp.text)
+
+            except Exception as e:
+                st.error(f"Gagal menghubungi API: {e}")

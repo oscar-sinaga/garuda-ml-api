@@ -10,6 +10,8 @@ from sklearn.model_selection import GroupShuffleSplit, train_test_split
 from sklearn.preprocessing import OneHotEncoder
 from xgboost import XGBRegressor
 from lightgbm import LGBMRegressor
+from typing import Union
+
 
 # =====================================================================
 # KONFIGURASI
@@ -24,7 +26,8 @@ VM_MODEL_PATH = "models/vm_xgb.joblib"
 FB_MODEL_PATH = "models/fuel_burn_xgb.joblib"
 PC_MODEL_PATH = "models/passenger_commission_lgbm.joblib"
 R_MODEL_PATH = "models/reservation_xgb.joblib"
-
+OBS_MODEL_PATH = "models/on_board_service_xgb.joblib"
+C_MODEL_PATH = "models/catering_xgb.joblib"
 
 
 # ========================== SELECTED FEATURES ==========================
@@ -115,6 +118,38 @@ CATEGORICAL_COLS_RESERVATION = ['SERVICE_TYPE',
                                 'REGION']
 
 NUMERICAL_COLS_RESERVATION = list(set(SELECTED_FEATURES_RESERVATION) - set(CATEGORICAL_COLS_RESERVATION))
+
+
+# ON BOARD SERVICE AND CATERING features
+
+# OBS
+SELECTED_FEATURES_OBS = ['PASSENGER_CARRIED',
+                         'ATK_PASSENGER_000', 
+                         'ASK_000', 
+                         'ASK_000_Y_CLASS', 
+                         'ATK_000',
+                         'CABIN_CREW_PERSON', 
+                         'COCKPIT_CREW_PERSON']
+
+TARGET_COL_OBS = ['ON_BOARD_SERVICE']
+
+# CATERING
+SELECTED_FEATURES_CATERING = ['PASSENGER_CARRIED', 
+                            'ATK_000', 
+                            'ATK_PASSENGER_000', 
+                            'ASK_000', 
+                            'ASK_000_Y_CLASS',
+                            'FLIGHT_ROUTE', 
+                            'SERVICE_TYPE', 
+                            'REGION']
+
+TARGET_COL_CATERING = 'CATERING'
+
+CATEGORICAL_COLS_CATERING = ['FLIGHT_ROUTE', 
+                            'SERVICE_TYPE', 
+                            'REGION']
+
+NUMERICAL_COLS_CATERING = list(set(SELECTED_FEATURES_CATERING) - set(CATEGORICAL_COLS_CATERING))
 
 
 # =====================================================================
@@ -244,6 +279,67 @@ class ReservationTrainResponse(BaseModel):
     n_train: int
     n_test: int
 
+
+## On Board Service and Catering Classes
+class OBSRecord(BaseModel):
+    PASSENGER_CARRIED: float
+    ATK_PASSENGER_000: float
+    ASK_000: float
+    ASK_000_Y_CLASS: float
+    ATK_000: float
+    CABIN_CREW_PERSON: float
+    COCKPIT_CREW_PERSON: float
+
+class OBSPredictRequest(BaseModel):
+    records: List[OBSRecord]
+
+class OBSPredictResponse(BaseModel):
+    predictions: List[float]
+
+class OBSTrainResponse(BaseModel):
+    mape: float          # dalam desimal, misal 0.05 = 5%
+    mape_percent: float  # dalam persen
+    rmse: float
+    n_train: int
+    n_test: int
+
+# Catering
+class CateringRecord(BaseModel):
+    PASSENGER_CARRIED: float
+    ATK_000: float
+    ATK_PASSENGER_000: float
+    ASK_000: float
+    ASK_000_Y_CLASS: float
+    FLIGHT_ROUTE: str
+    SERVICE_TYPE: str
+    REGION: str
+
+class CateringPredictRequest(BaseModel):
+    records: List[CateringRecord]
+
+class CateringPredictResponse(BaseModel):
+    predictions: List[float]
+
+class CateringTrainResponse(BaseModel):
+    mape: float          # dalam desimal, misal 0.05 = 5%
+    mape_percent: float  # dalam persen
+    rmse: float
+    n_train: int
+    n_test: int
+
+# Combined OBS and Catering
+class OBSCPredictRequest(BaseModel):
+    obs: OBSPredictRequest
+    catering: CateringPredictRequest
+
+class OBSCPredictResponse(BaseModel):
+    obs: OBSPredictResponse
+    catering: CateringPredictResponse
+
+class OBSCTrainResponse(BaseModel):
+    obs : OBSTrainResponse
+    catering : CateringTrainResponse
+
 # =====================================================================
 # GLOBAL CACHE
 # =====================================================================
@@ -256,6 +352,9 @@ _fb_artifacts = None
 _pc_model_artifacts = None
 
 _reservation_model_artifacts = None
+
+_obs_model_artifacts = None
+_catering_model_artifacts = None
 
 # =====================================================================
 # LOAD ARTIFACTS
@@ -318,6 +417,38 @@ def load_reservation_artifacts():
 
     _reservation_model_artifacts = joblib.load(R_MODEL_PATH)
     return _reservation_model_artifacts
+
+def load_obs_artifacts():
+    """Load model & encoder dari disk jika belum ada di cache."""
+    global _obs_model_artifacts
+    if _obs_model_artifacts is not None:
+        return _obs_model_artifacts
+
+    if not os.path.exists(OBS_MODEL_PATH):
+        raise RuntimeError(
+            f"Model belum dilatih. Jalankan endpoint /train dulu. "
+            f"File tidak ditemukan: {OBS_MODEL_PATH}"
+        )
+
+    _obs_model_artifacts = joblib.load(OBS_MODEL_PATH)
+    return _obs_model_artifacts
+
+
+def load_catering_artifacts():
+    """Load model & encoder dari disk jika belum ada di cache."""
+    global _catering_model_artifacts
+    if _catering_model_artifacts is not None:
+        return _catering_model_artifacts
+
+    if not os.path.exists(C_MODEL_PATH):
+        raise RuntimeError(
+            f"Model belum dilatih. Jalankan endpoint /train dulu. "
+            f"File tidak ditemukan: {C_MODEL_PATH}"
+        )
+
+    _catering_model_artifacts = joblib.load(C_MODEL_PATH)
+    return _catering_model_artifacts
+
 
 # =====================================================================
 # TRAINING FUNCTION
@@ -751,6 +882,163 @@ def train_reservation_model():
         "n_test": int(len(X_test)),
     }
 
+
+def train_obs_model():
+    """Train, simpan artifacts, dan return metrics."""
+    global _obs_model_artifacts
+     
+    def load_training_data() -> pd.DataFrame:
+        if not os.path.exists(EXCEL_PATH):
+            raise RuntimeError(f"File Excel tidak ditemukan: {EXCEL_PATH}")
+
+        df = pd.read_excel(EXCEL_PATH, sheet_name=SHEET_NAME, skiprows=1)
+        df = df.iloc[:, 1:]  # buang kolom index pertama
+
+        RENAME_MAP = {
+            # On Board Service
+            'PASSENGER CARRIED': 'PASSENGER_CARRIED',
+            'ATK PASSENGER (000)': 'ATK_PASSENGER_000', 
+            'ASK (000)': 'ASK_000', 
+            'ASK (000) Y CLASS': 'ASK_000_Y_CLASS', 
+            'ATK (000)': 'ATK_000',
+            'CABIN CREW PERSON': 'CABIN_CREW_PERSON', 
+            'COCKPIT CREW PERSON': 'COCKPIT_CREW_PERSON',
+            'BLOCK HOURS': 'BLOCK_HOURS',
+            'ON BOARD SERVICE': 'ON_BOARD_SERVICE'
+        }
+
+        df = df.rename(columns=RENAME_MAP)
+
+        ### REMOVE ZEROES
+        df1 = df[(df['PASSENGER_CARRIED'] != 0) & 
+                 (df['BLOCK_HOURS']!=0) & 
+        (df['ON_BOARD_SERVICE']!=0) & (df['CATERING']!=0)].copy()
+        
+        return df1
+    
+    df1 = load_training_data()
+    X = df1[SELECTED_FEATURES_OBS].copy()
+    y = df1[TARGET_COL_OBS].copy()
+
+    X_train, X_test, y_train, y_test = train_test_split(
+                    X, y, test_size=0.2, random_state=42)
+    
+    model = XGBRegressor(n_estimators=2000, learning_rate=0.5, objective="reg:squarederror")
+    model.fit(X_train, y_train)
+
+    y_pred = model.predict(X_test)
+    
+    mape = mean_absolute_percentage_error(y_test, y_pred)
+    rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+    
+    artifacts = {
+        "model": model,
+        "selected_features": SELECTED_FEATURES_OBS,
+    }
+
+    os.makedirs(os.path.dirname(OBS_MODEL_PATH), exist_ok=True)
+    
+    joblib.dump(artifacts, OBS_MODEL_PATH)
+    
+    _obs_model_artifacts = artifacts  # cache di memori
+    
+    return {
+        "mape": float(mape),
+        "mape_percent": float(mape * 100.0),
+        "rmse": float(rmse),
+        "n_train": int(len(X_train)),
+        "n_test": int(len(X_test)),
+    }
+
+
+def train_catering_model():
+    """Train, simpan artifacts, dan return metrics."""
+    global _catering_model_artifacts
+     
+    def load_training_data() -> pd.DataFrame:
+        if not os.path.exists(EXCEL_PATH):
+            raise RuntimeError(f"File Excel tidak ditemukan: {EXCEL_PATH}")
+
+        df = pd.read_excel(EXCEL_PATH, sheet_name=SHEET_NAME, skiprows=1)
+        df = df.iloc[:, 1:]  # buang kolom index pertama  
+
+        RENAME_MAP= {
+            # Catering
+            'PASSENGER CARRIED': 'PASSENGER_CARRIED', 
+            'ATK (000)': 'ATK_000', 
+            'ATK PASSENGER (000)': 'ATK_PASSENGER_000', 
+            'ASK (000)': 'ASK_000', 
+            'ASK (000) Y CLASS': 'ASK_000_Y_CLASS',
+            'FLIGHT ROUTE': 'FLIGHT_ROUTE', 
+            'SERVICE TYPE': 'SERVICE_TYPE', 
+            'Region': 'REGION',
+            'BLOCK HOURS': 'BLOCK_HOURS',
+            'ON BOARD SERVICE': 'ON_BOARD_SERVICE'
+
+        }
+
+        df = df.rename(columns=RENAME_MAP)
+
+        ### REMOVE ZEROES
+        df1 = df[(df['PASSENGER_CARRIED'] != 0) & (df['BLOCK_HOURS']!=0) & 
+        (df['ON_BOARD_SERVICE']!=0) & (df['CATERING']!=0)].copy()
+
+
+        return df1
+    
+    df1 = load_training_data()
+    X = df1[SELECTED_FEATURES_CATERING].copy()
+    y = df1['CATERING'].copy()
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=10)
+    
+    encoder = OneHotEncoder(handle_unknown='ignore', sparse_output=False)
+    encoder.fit(X_train[CATEGORICAL_COLS_CATERING])
+
+    X_train_encoded = encoder.transform(X_train[CATEGORICAL_COLS_CATERING])
+    X_test_encoded = encoder.transform(X_test[CATEGORICAL_COLS_CATERING])
+
+    encoded_cols = encoder.get_feature_names_out(CATEGORICAL_COLS_CATERING)
+
+    X_train_encoded = pd.DataFrame(X_train_encoded, columns=encoded_cols, index=X_train.index)
+    X_test_encoded = pd.DataFrame(X_test_encoded, columns=encoded_cols, index=X_test.index)
+
+    X_train_final = pd.concat([X_train[NUMERICAL_COLS_CATERING], X_train_encoded], axis=1)
+    X_test_final = pd.concat([X_test[NUMERICAL_COLS_CATERING], X_test_encoded], axis=1)
+
+    model = XGBRegressor(n_estimators=2000, learning_rate=0.5, objective="reg:squarederror")
+    model.fit(X_train_final, y_train)
+
+    y_pred = model.predict(X_test_final)
+
+    mape = mean_absolute_percentage_error(y_test, y_pred)
+    rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+    
+    
+    artifacts = {
+        "model": model,
+        "encoder": encoder,
+        "categorical_cols": CATEGORICAL_COLS_CATERING,
+        "numeric_cols": NUMERICAL_COLS_CATERING,
+        "selected_features": SELECTED_FEATURES_CATERING,
+    }
+
+    os.makedirs(os.path.dirname(C_MODEL_PATH), exist_ok=True)
+    
+    joblib.dump(artifacts, C_MODEL_PATH)
+    
+    _catering_model_artifacts = artifacts  # cache di memori
+    
+    return {
+        "mape": float(mape),
+        "mape_percent": float(mape * 100.0),
+        "rmse": float(rmse),
+        "n_train": int(len(X_train)),
+        "n_test": int(len(X_test)),
+    }
+
+
 # =====================================================================
 # FASTAPI ENDPOINTS
 # =====================================================================
@@ -901,6 +1189,65 @@ def predict_reservation(req: ReservationPredictRequest):
     return ReservationPredictResponse(predictions= preds)
 
 
+@app.post("/predict_obsc", response_model=OBSCPredictResponse)
+def predict_obsc(req: OBSCPredictRequest):
+    try:
+        artifacts_obs = load_obs_artifacts()
+        artifacts_catering = load_catering_artifacts()
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
+    model_obs = artifacts_obs["model"]
+
+    model_catering = artifacts_catering["model"]
+    encoder_catering = artifacts_catering["encoder"]
+    categorical_cols_catering = artifacts_catering["categorical_cols"]
+    numeric_cols_catering = artifacts_catering["numeric_cols"]
+
+
+    # Pydantic -> DataFrame
+    data_obs = pd.DataFrame([r.dict() for r in req.obs.records])
+    data_catering =pd.DataFrame([r.dict() for r in req.catering.records])
+
+    # Pastikan semua fitur ada
+    missing = [c for c in SELECTED_FEATURES_OBS if c not in data_obs.columns]
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Fitur berikut hilang di request: {missing}",
+        )
+    
+    missing = [c for c in SELECTED_FEATURES_CATERING if c not in data_catering.columns]
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Fitur berikut hilang di request: {missing}",
+        )
+    
+    # OBS
+    preds_obs = model_obs.predict(data_obs)
+    preds_obs = [float(p) for p in preds_obs]
+
+    # CATERING
+    df_cat = data_catering[categorical_cols_catering]
+    df_num = data_catering[numeric_cols_catering]
+
+    df_cat_enc = encoder_catering.transform(df_cat)
+    enc_cols = encoder_catering.get_feature_names_out(categorical_cols_catering)
+
+    df_cat_enc_df = pd.DataFrame(df_cat_enc, columns=enc_cols, index=data_catering.index)
+
+    X_final = pd.concat([df_num, df_cat_enc_df], axis=1)
+
+    preds_catering = model_catering.predict(X_final)
+    preds_catering = [float(p) for p in preds_catering]
+
+    return {
+        "obs": OBSPredictResponse(predictions=preds_obs),
+        "catering": CateringPredictResponse(predictions=preds_catering)
+    }
+
+
 
 
 # =======================
@@ -946,6 +1293,19 @@ def train_reservation():
     try:
         metrics = train_reservation_model()
         return ReservationTrainResponse(**metrics)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/train_obsc", response_model=OBSCTrainResponse)
+def train_obsc():
+    """Latih ulang model dari file Excel."""
+    try:
+        metrics_obs = train_obs_model()
+        metrics_catering = train_catering_model()
+
+        return {"obs": OBSTrainResponse(**metrics_obs),               
+                "catering": CateringTrainResponse(**metrics_catering)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

@@ -177,7 +177,8 @@ st.sidebar.title("🧭 Navigation")
 
 model_menu = st.sidebar.radio(
     "📦 Model",
-    ["Fuel Burn", "Variable Maintenance", "Passenger Commission", "Reservation"],
+    ["Fuel Burn", "Variable Maintenance", "Passenger Commission", "Reservation",
+     "On Board Service and Catering"],
 )
 
 action_menu = st.sidebar.radio(
@@ -990,3 +991,42 @@ elif model_menu == "Maintenance Reserve":
 
             except Exception as e:
                 st.error(f"Gagal menghubungi API: {e}")
+
+# =============================
+# ON BOARD SERVICE AND CATERING
+# =============================
+
+elif model_menu == "On Board Service and Catering Prediction":
+
+    st.title("🛡️ On Board Service and Catering Prediction")
+
+    if action_menu == "Predict":
+        st.header("🔮 Prediksi On Board Service and Catering")
+        st.write("Masukkan parameter operasional untuk memprediksi On Board Service and Catering.")
+
+        sample_row = df_sample.copy().fillna("").iloc[0]
+        df_filter_mr = df_filter.copy().fillna("")
+
+        c_cat1, c_cat2, c_cat3 = st.columns(3)
+
+
+        actual1 = sample_row["ON BOARD SERVICE"]
+        actual2 = sample_row["CATERING"]
+
+        st.caption("Default value diisi dari salah satu contoh flight di dataset.")
+
+        # =====================
+        # Input fitur
+        # =====================
+        with st.form("predict_form"):
+            st.markdown("---")
+            st.subheader("On Board Service")
+            col_cat1, col_cat2 = st.columns(2)
+            col_cat3, col_cat4 = st.columns(2)
+            col_cat5, _ = st.columns(2)
+
+
+            st.markdown("---")
+            st.subheader("Catering")
+
+

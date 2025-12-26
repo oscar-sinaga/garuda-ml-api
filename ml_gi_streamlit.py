@@ -34,6 +34,16 @@ API_PC_TRAIN   = f"{BASE_API}/train_pc"
 
 API_RESERVATION_PREDICT = f"{BASE_API}/predict_reservation"
 API_RESERVATION_TRAIN   = f"{BASE_API}/train_reservation"
+
+API_MR_PREDICT = f"{BASE_API}/predict_mr"
+API_MR_TRAIN   = f"{BASE_API}/train_mr"
+
+
+API_COCKPIT_TRAIN = f"{BASE_API}/train_cockpit"
+API_COCKPIT_PREDICT = f"{BASE_API}/predict_cockpit"
+
+API_CABIN_TRAIN = f"{BASE_API}/train_cabin"
+API_CABIN_PREDICT = f"{BASE_API}/predict_cabin"
 # ==================================================
 # KONFIGURASI FILE DATA (UNTUK DROPDOWN DEFAULT)
 # ==================================================
@@ -177,7 +187,7 @@ st.sidebar.title("🧭 Navigation")
 
 model_menu = st.sidebar.radio(
     "📦 Model",
-    ["Fuel Burn", "Variable Maintenance", "Passenger Commission", "Reservation"],
+    ["Fuel Burn", "Variable Maintenance", "Passenger Commission", "Reservation", "Maintenance Reserve", "Crew FATA"],
 )
 
 action_menu = st.sidebar.radio(
@@ -990,3 +1000,117 @@ elif model_menu == "Maintenance Reserve":
 
             except Exception as e:
                 st.error(f"Gagal menghubungi API: {e}")
+
+
+# =========================
+# CREW TRAVEL MODEL
+# =========================
+elif model_menu == "Crew FATA":
+    st.title("Crew FATA Cost Prediction")
+    
+    if action_menu == "Predict":
+        st.header("Prediksi Biaya Crew FATA")
+        st.caption("Memprediksi biaya untuk Cockpit & Cabin sekaligus.")
+
+        # Ambil sampel default
+        sample_row = df_sample.copy().fillna("").iloc[0]
+        df_filter_crew = df_filter.copy().fillna("")
+
+        # --- INPUTS ---
+        col1, col2, col3 = st.columns(3)
+        
+        with col1:
+            # Dropdowns
+            actype_opts = sorted(df_filter_crew['AIRCRAFT TYPE'].astype(str).unique())
+            AIRCRAFT_TYPE = st.selectbox("AIRCRAFT TYPE", actype_opts)
+            
+            serv_opts = sorted(df_filter_crew['SERVICE TYPE'].astype(str).unique())
+            SERVICE_TYPE = st.selectbox("SERVICE TYPE", serv_opts)
+
+            per_opts = sorted(df_filter_crew['PERIODE'].astype(str).unique())
+            PERIODE = st.selectbox("PERIODE", per_opts)
+
+        with col2:
+            BLOCK_HOURS = st.number_input("BLOCK HOURS", min_value=0.0, value=float(sample_row.get("BLOCK HOURS", 100.0)))
+            FLIGHT_KILOMETERS = st.number_input("FLIGHT KM", min_value=0.0, value=float(sample_row.get("FLIGHT KILOMETERS", 5000.0)))
+            ASK_000 = st.number_input("ASK (000)", min_value=0.0, value=float(sample_row.get("ASK (000)", 1000.0)))
+        
+        with col3:
+            NUMBER_OF_LANDING = st.number_input("NUMBER OF LANDING", min_value=0.0, value=float(sample_row.get("NUMBER OF LANDING", 10.0)))
+            ATK_000 = st.number_input("ATK (000)", min_value=0.0, value=float(sample_row.get("ATK (000)", 500.0)))
+            SEAT_OFFERED = st.number_input("SEAT OFFERED", min_value=0.0, value=float(sample_row.get("SEAT OFFERED", 150.0)))
+
+        # --- PREDICT BUTTON ---
+        if st.button("🚀 Prediksi Biaya Crew"):
+            record = {
+                "BLOCK_HOURS": BLOCK_HOURS,
+                "FLIGHT_KILOMETERS": FLIGHT_KILOMETERS,
+                "ASK_000": ASK_000,
+                "NUMBER_OF_LANDING": NUMBER_OF_LANDING,
+                "ATK_000": ATK_000,
+                "SEAT_OFFERED": SEAT_OFFERED,
+                "AIRCRAFT_TYPE": AIRCRAFT_TYPE,
+                "SERVICE_TYPE": SERVICE_TYPE,
+                "PERIODE": PERIODE
+            }
+
+            col_res1, col_res2 = st.columns(2)
+
+            # Hitung Cockpit
+            with col_res1:
+                try:
+                    resp_cp = requests.post(API_COCKPIT_PREDICT, json={"records": [record]})
+                    if resp_cp.status_code == 200:
+                        val = resp_cp.json()['predictions'][0]
+                        st.success(f"Cockpit Crew: **${val:,.2f}**")
+                    else:
+                        st.warning(f"Cockpit Model belum siap (Train dulu).")
+                except:
+                    st.error("Gagal koneksi Cockpit API")
+
+            # Hitung Cabin
+            with col_res2:
+                try:
+                    resp_cb = requests.post(API_CABIN_PREDICT, json={"records": [record]})
+                    if resp_cb.status_code == 200:
+                        val = resp_cb.json()['predictions'][0]
+                        st.success(f"Cabin Crew: **${val:,.2f}**")
+                    else:
+                        st.warning(f"Cabin Model belum siap (Train dulu).")
+                except:
+                    st.error("Gagal koneksi Cabin API")
+
+    elif action_menu == "Train":
+        st.header("🔁 Training Model Crew")
+        
+        c_train1, c_train2 = st.columns(2)
+        
+        with c_train1:
+            st.subheader("👨‍✈️ Cockpit Model")
+            if st.button("Train Cockpit Model"):
+                with st.spinner("Training Cockpit..."):
+                    try:
+                        resp = requests.post(API_COCKPIT_TRAIN)
+                        if resp.status_code == 200:
+                            d = resp.json()
+                            st.success("Done!")
+                            st.metric("MAPE", f"{d['mape_percent']:.2f}%")
+                        else:
+                            st.error(f"Error: {resp.text}")
+                    except Exception as e:
+                        st.error(f"Error: {e}")
+
+        with c_train2:
+            st.subheader("👩‍✈️ Cabin Model")
+            if st.button("Train Cabin Model"):
+                with st.spinner("Training Cabin..."):
+                    try:
+                        resp = requests.post(API_CABIN_TRAIN)
+                        if resp.status_code == 200:
+                            d = resp.json()
+                            st.success("Done!")
+                            st.metric("MAPE", f"{d['mape_percent']:.2f}%")
+                        else:
+                            st.error(f"Error: {resp.text}")
+                    except Exception as e:
+                        st.error(f"Error: {e}")

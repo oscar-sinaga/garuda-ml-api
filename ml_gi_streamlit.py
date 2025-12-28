@@ -34,6 +34,9 @@ API_PC_TRAIN   = f"{BASE_API}/train_pc"
 
 API_RESERVATION_PREDICT = f"{BASE_API}/predict_reservation"
 API_RESERVATION_TRAIN   = f"{BASE_API}/train_reservation"
+
+API_OBSC_PREDICT = f"{BASE_API}/predict_obsc"
+API_OBSC_TRAIN = f"{BASE_API}/train_obsc"
 # ==================================================
 # KONFIGURASI FILE DATA (UNTUK DROPDOWN DEFAULT)
 # ==================================================
@@ -161,6 +164,44 @@ SELECTED_FEATURES_RESERVATION = ['PASSENGER_CARRIED',
                      'REGION']
 
 SELECTED_FEATURES_RESERVATION = SELECTED_FEATURES_RESERVATION + ["RESERVATION"]
+
+# ON BOARD SERVICE AND CATERING
+RENAME_MAP_OBSC = {
+            # On Board Service
+            'PASSENGER CARRIED': 'PASSENGER_CARRIED',
+            'ATK PASSENGER (000)': 'ATK_PASSENGER_000', 
+            'ASK (000)': 'ASK_000', 
+            'ASK (000) Y CLASS': 'ASK_000_Y_CLASS', 
+            'ATK (000)': 'ATK_000',
+            'CABIN CREW PERSON': 'CABIN_CREW_PERSON', 
+            'COCKPIT CREW PERSON': 'COCKPIT_CREW_PERSON',
+            'BLOCK HOURS': 'BLOCK_HOURS',
+            'ON BOARD SERVICE': 'ON_BOARD_SERVICE',
+            'FLIGHT ROUTE': 'FLIGHT_ROUTE', 
+            'SERVICE TYPE': 'SERVICE_TYPE', 
+            'Region': 'REGION'
+        }
+
+SELECTED_FEATURES_OBS = ['PASSENGER_CARRIED',
+                         'ATK_PASSENGER_000', 
+                         'ASK_000', 
+                         'ASK_000_Y_CLASS', 
+                         'ATK_000',
+                         'CABIN_CREW_PERSON', 
+                         'COCKPIT_CREW_PERSON']
+
+SELECTED_FEATURES_CATERING = ['PASSENGER_CARRIED', 
+                            'ATK_000', 
+                            'ATK_PASSENGER_000', 
+                            'ASK_000', 
+                            'ASK_000_Y_CLASS',
+                            'FLIGHT_ROUTE', 
+                            'SERVICE_TYPE', 
+                            'REGION']
+
+CATEGORICAL_COLS_CATERING = ['FLIGHT_ROUTE', 
+                            'SERVICE_TYPE', 
+                            'REGION']
 
 # ==================================================
 # PAGE CONFIG
@@ -996,22 +1037,22 @@ elif model_menu == "Maintenance Reserve":
 # ON BOARD SERVICE AND CATERING
 # =============================
 
-elif model_menu == "On Board Service and Catering Prediction":
+elif model_menu == "On Board Service and Catering":
 
-    st.title("🛡️ On Board Service and Catering Prediction")
+    st.title("🍕 On Board Service and Catering Prediction")
 
     if action_menu == "Predict":
-        st.header("🔮 Prediksi On Board Service and Catering")
+        st.subheader("🔮 Prediksi On Board Service dan Catering ($)")
         st.write("Masukkan parameter operasional untuk memprediksi On Board Service and Catering.")
 
-        sample_row = df_sample.copy().fillna("").iloc[0]
-        df_filter_mr = df_filter.copy().fillna("")
+        sample_row = df_sample.copy().fillna("").rename(columns=RENAME_MAP_OBSC).iloc[0]
+        df_filter_obsc = df_filter1.copy().fillna("").rename(columns=RENAME_MAP_OBSC)
 
-        c_cat1, c_cat2, c_cat3 = st.columns(3)
+        # c_cat1, c_cat2, c_cat3 = st.columns(3)
 
 
-        actual1 = sample_row["ON BOARD SERVICE"]
-        actual2 = sample_row["CATERING"]
+        actual_obs = sample_row["ON_BOARD_SERVICE"]
+        actual_catering = sample_row["CATERING"]
 
         st.caption("Default value diisi dari salah satu contoh flight di dataset.")
 
@@ -1019,14 +1060,145 @@ elif model_menu == "On Board Service and Catering Prediction":
         # Input fitur
         # =====================
         with st.form("predict_form"):
-            st.markdown("---")
             st.subheader("On Board Service")
-            col_cat1, col_cat2 = st.columns(2)
-            col_cat3, col_cat4 = st.columns(2)
-            col_cat5, _ = st.columns(2)
 
+            num_cols1, num_cols2, num_cols3 = st.columns(3)
+
+            PASSENGER_CARRIED = num_cols1.number_input(
+                "PASSENGER_CARRIED", value=int(sample_row["PASSENGER_CARRIED"])
+            )
+
+            ATK_000 = num_cols2.number_input(
+                "ATK_000", value=float(sample_row["ATK_000"])
+            )
+
+            ATK_PASSENGER_000 = num_cols3.number_input(
+                "ATK_PASSENGER_000", value=float(sample_row["ATK_PASSENGER_000"])
+            )
+
+            ASK_000 = num_cols1.number_input(
+                "ASK_000", value=float(sample_row["ASK_000"])
+            )
+
+            ASK_000_Y_CLASS = num_cols2.number_input(
+                "ASK_000_Y_CLASS", value=float(sample_row["ASK_000_Y_CLASS"])
+            )
+
+            CABIN_CREW_PERSON = num_cols3.number_input(
+                "CABIN_CREW_PERSON", value=float(sample_row["CABIN_CREW_PERSON"])
+            )
+
+            COCKPIT_CREW_PERSON = num_cols1.number_input(
+                "COCKPIT_CREW_PERSON", value=float(sample_row["COCKPIT_CREW_PERSON"])
+            )
 
             st.markdown("---")
             st.subheader("Catering")
 
+            num_cols1, num_cols2, num_cols3 = st.columns(3)
 
+            froute_options = sorted(df_filter_obsc["FLIGHT_ROUTE"].dropna().unique())
+            stype_options = sorted(df_filter_obsc["SERVICE_TYPE"].dropna().unique())
+            region_options = sorted(df_filter_obsc["REGION"].dropna().unique())
+
+            def default_index(options, value):
+                try:
+                    return list(options).index(value)
+                except ValueError:
+                    return 0
+                
+            FLIGHT_ROUTE = num_cols1.selectbox(
+                "FLIGHT_ROUTE",
+                froute_options,
+                index=default_index(froute_options, sample_row["FLIGHT_ROUTE"]),
+            )
+
+            REGION = num_cols2.selectbox(
+                "REGION",
+                region_options,
+                index=default_index(region_options, sample_row["REGION"]),
+            )
+
+            SERVICE_TYPE = num_cols3.selectbox(
+                "SERVICE_TYPE",
+                stype_options,
+                index=default_index(stype_options, sample_row["SERVICE_TYPE"]),
+            )
+
+            submitted = st.form_submit_button("🔮 Prediksi OBSC")
+
+        if submitted:
+            record_obs = {
+                'PASSENGER_CARRIED': PASSENGER_CARRIED,
+                'ATK_PASSENGER_000': ATK_PASSENGER_000,
+                'ASK_000': ASK_000,
+                'ASK_000_Y_CLASS': ASK_000_Y_CLASS,
+                'ATK_000': ATK_000,
+                'CABIN_CREW_PERSON': CABIN_CREW_PERSON,
+                'COCKPIT_CREW_PERSON': COCKPIT_CREW_PERSON
+                }
+
+            record_catering = {
+                'PASSENGER_CARRIED': PASSENGER_CARRIED,
+                'ATK_000': ATK_000,
+                'ATK_PASSENGER_000': ATK_PASSENGER_000,
+                'ASK_000': ASK_000,
+                'ASK_000_Y_CLASS': ASK_000_Y_CLASS,
+                'FLIGHT_ROUTE': FLIGHT_ROUTE,
+                'SERVICE_TYPE': SERVICE_TYPE,
+                'REGION': REGION
+            } 
+
+            try:
+                with st.spinner("Meminta prediksi ke API..."):
+                    resp = requests.post(
+                        API_OBSC_PREDICT, 
+                        json={
+                                "obs": {"records": [record_obs]},
+                                "catering": {"records": [record_catering]},
+                            }
+                    )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    pred_obs = data["obs"]["predictions"][0]
+                    pred_catering = data["catering"]["predictions"][0]
+                    st.success("Prediksi berhasil ✅")
+                    st.metric("Perkiraan On Board Service ($)", f"{pred_obs:,.2f}")
+                    st.metric("Perkiraan Catering ($)", f"{pred_catering:,.2f}")
+                    st.json(data)
+                    st.text( f"{actual_obs:,.2f}")
+                    st.text( f"{actual_catering:,.2f}")
+                else:
+                    st.error(f"Error {resp.status_code}: {resp.text}")
+            except Exception as e:
+                st.error(f"Gagal menghubungi API: {e}")
+
+    if action_menu == "Train":
+        st.write("""
+            Endpoint ini akan membaca dataset yang sudah ditentukan di API (`EXCEL_PATH`),
+            melakukan preprocessing, training ulang XGBoost, kemudian menyimpan model baru.
+        """)
+
+        st.warning("""
+        ⚠️ Perhatian:
+        - Proses training bisa memakan waktu (tergantung size dataset).
+        - Model lama akan di-*overwrite* oleh model baru.
+        """)
+
+        if st.button("Train sekarang"):
+            try:
+                with st.spinner("Training model di server API..."):
+                    resp = requests.post(API_OBSC_TRAIN)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    st.success("Training selesai ✅")
+                    st.json(data)
+                    st.metric("MAPE On Board Service (%)", f"{data["obs"]['mape_percent']:.2f}")
+                    st.metric("RMSE On Board Service (liter)", f"{data["obs"]['rmse']:.2f}")
+
+                    st.metric("MAPE Catering (%)", f"{data["catering"]['mape_percent']:.2f}")
+                    st.metric("RMSE Catering (liter)", f"{data["catering"]['rmse']:.2f}")
+                else:
+                    st.error(f"Error {resp.status_code}: {resp.text}")
+            except Exception as e:
+                st.error(f"Gagal menghubungi API: {e}")

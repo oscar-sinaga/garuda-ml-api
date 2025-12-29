@@ -18,7 +18,7 @@ from typing import Union
 # =====================================================================
 
 # Sheet Excel 
-EXCEL_PATH = "C:/Users/hp/Downloads/acopy/05. Database RP May 2025 - AC REGISTER.xlsx"
+EXCEL_PATH = "05. Database RP May 2025 - AC REGISTER.xlsx"
 SHEET_NAME = "Raw"
 
 # Model Path

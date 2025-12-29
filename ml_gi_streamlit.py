@@ -1202,11 +1202,11 @@ elif model_menu == "On Board Service and Catering":
                     data = resp.json()
                     st.success("Training selesai ✅")
                     st.json(data)
-                    st.metric("MAPE On Board Service (%)", f"{data["obs"]['mape_percent']:.2f}")
-                    st.metric("RMSE On Board Service (liter)", f"{data["obs"]['rmse']:.2f}")
+                    st.metric("MAPE On Board Service (%)", f"{data['obs']['mape_percent']:.2f}")
+                    st.metric("RMSE On Board Service (liter)", f"{data['obs']['rmse']:.2f}")
 
-                    st.metric("MAPE Catering (%)", f"{data["catering"]['mape_percent']:.2f}")
-                    st.metric("RMSE Catering (liter)", f"{data["catering"]['rmse']:.2f}")
+                    st.metric("MAPE Catering (%)", f"{data['catering']['mape_percent']:.2f}")
+                    st.metric("RMSE Catering (liter)", f"{data['catering']['rmse']:.2f}")
                 else:
                     st.error(f"Error {resp.status_code}: {resp.text}")
             except Exception as e:

@@ -31,6 +31,8 @@ C_MODEL_PATH = "models/catering_xgb.joblib"
 MR_MODEL_PATH = "models/maintenance_reserve_xgb.joblib"
 COCKPIT_MODEL_PATH = "models/cockpit_crew_xgb.joblib"
 CABIN_MODEL_PATH = "models/cabin_crew_xgb.joblib"
+STATION_MODEL_PATH = "models/station_xgb.joblib"
+ADMIN_BO_MODEL_PATH = "models/admin_bo_xgb.joblib"
 
 
 # ========================== SELECTED FEATURES ==========================
@@ -184,6 +186,44 @@ CATEGORICAL_COLS_CATERING = ['FLIGHT_ROUTE',
 
 NUMERICAL_COLS_CATERING = list(set(SELECTED_FEATURES_CATERING) - set(CATEGORICAL_COLS_CATERING))
 
+# BRANCH OFFICE AND FIXED STATION COST
+
+# ADMINISTRATION BRANCH OFFICE
+SELECTED_FEATURES_ADMIN_BO = ['SALES_ORGANIZATION', 
+                              'COCKPIT_CREW_TRAVEL', 
+                              'ASK_000_C_CLASS', 
+                              'ASK_000',
+                              'CABIN_CREW_TRAVEL',
+                              'PERIODE', 
+                              'QUARTER', 
+                              'REGION', 
+                              'GA_SERVICE']
+
+TARGET_COL_ADMIN_BO = "ADMINISTRATION_BO"
+
+CATEGORICAL_COLS_ADMIN_BO = ['PERIODE', 
+                              'QUARTER', 
+                              'REGION', 
+                              'GA_SERVICE']
+
+NUMERICAL_COLS_ADMIN_BO = list(set(SELECTED_FEATURES_ADMIN_BO) - set(CATEGORICAL_COLS_ADMIN_BO))
+
+# STATION
+SELECTED_FEATURES_STATION = ['COCKPIT_CREW_TRAVEL', 
+                             'FLIGHT_KILOMETERS', 
+                             'COCKPIT_CREW_PERSON', 
+                             'CABIN_CREW_TRAVEL',
+                             'PERIODE', 
+                             'QUARTER', 
+                             'REGION', 
+                             'GA_SERVICE']
+
+CATEGORICAL_COLS_STATION = ['PERIODE', 
+                              'QUARTER', 
+                              'REGION', 
+                              'GA_SERVICE']
+
+NUMERICAL_COLS_STATION = list(set(SELECTED_FEATURES_STATION) - set(CATEGORICAL_COLS_STATION))
 
 # =====================================================================
 # MODEL REQUEST FORMAT
@@ -418,7 +458,68 @@ class MRTrainResponse(BaseModel):
     n_train: int
     n_test: int
 
+# Branch office and fixed station cost
+# Administration BO
+class AdminBORecord(BaseModel):
+    SALES_ORGANIZATION: float
+    COCKPIT_CREW_TRAVEL: float
+    ASK_000_C_CLASS: float
+    ASK_000: float
+    CABIN_CREW_TRAVEL: float
+    PERIODE: str
+    QUARTER: str
+    REGION: str
+    GA_SERVICE: str
 
+class AdminBOPredictRequest(BaseModel):
+    records: List[AdminBORecord]
+
+class AdminBOPredictResponse(BaseModel):
+    predictions: List[float]
+
+class AdminBOTrainResponse(BaseModel):
+    mape: float
+    mape_percent: float
+    rmse: float
+    n_train: int
+    n_test: int
+
+# Station
+class StationRecord(BaseModel):
+    COCKPIT_CREW_TRAVEL: float
+    FLIGHT_KILOMETERS: float
+    COCKPIT_CREW_PERSON: float
+    CABIN_CREW_TRAVEL:float
+    PERIODE: str
+    QUARTER: str
+    REGION: str
+    GA_SERVICE: str
+
+class StationPredictRequest(BaseModel):
+    records: List[StationRecord]
+
+class StationPredictResponse(BaseModel):
+    predictions: List[float]
+
+class StationTrainResponse(BaseModel):
+    mape: float
+    mape_percent: float
+    rmse: float
+    n_train: int
+    n_test: int
+
+# Combined (Admin BO and Station)
+class BOFSCPredictRequest(BaseModel):
+    administration_bo: AdminBOPredictRequest
+    station: StationPredictRequest
+
+class BOFSCPredictResponse(BaseModel):
+    administration_bo: AdminBOPredictResponse
+    station: StationPredictResponse
+
+class BOFSCTrainResponse(BaseModel):
+    administration_bo : AdminBOTrainResponse
+    station : StationTrainResponse
 
 # =====================================================================
 # GLOBAL CACHE
@@ -440,6 +541,10 @@ _mr_artifacts = None
 
 _cockpit_artifacts = None
 _cabin_artifacts = None
+
+_admin_bo_model_artifacts = None
+_station_model_artifacts = None
+
 # =====================================================================
 # LOAD ARTIFACTS
 # =====================================================================
@@ -562,6 +667,38 @@ def load_cabin_artifacts():
         raise RuntimeError("Model Cabin belum dilatih.")
     _cabin_artifacts = joblib.load(CABIN_MODEL_PATH)
     return _cabin_artifacts
+
+
+def load_admin_bo_artifacts():
+    """Load model & encoder dari disk jika belum ada di cache."""
+    global _admin_bo_model_artifacts
+    if _admin_bo_model_artifacts is not None:
+        return _admin_bo_model_artifacts
+
+    if not os.path.exists(ADMIN_BO_MODEL_PATH):
+        raise RuntimeError(
+            f"Model belum dilatih. Jalankan endpoint /train dulu. "
+            f"File tidak ditemukan: {ADMIN_BO_MODEL_PATH}"
+        )
+
+    _admin_bo_model_artifacts = joblib.load(ADMIN_BO_MODEL_PATH)
+    return _admin_bo_model_artifacts
+
+def load_station_artifacts():
+    """Load model & encoder dari disk jika belum ada di cache."""
+    global _station_model_artifacts
+    if _station_model_artifacts is not None:
+        return _station_model_artifacts
+
+    if not os.path.exists(STATION_MODEL_PATH):
+        raise RuntimeError(
+            f"Model belum dilatih. Jalankan endpoint /train dulu. "
+            f"File tidak ditemukan: {STATION_MODEL_PATH}"
+        )
+
+    _station_model_artifacts = joblib.load(STATION_MODEL_PATH)
+    return _station_model_artifacts
+
 # =====================================================================
 # TRAINING FUNCTION
 # =====================================================================
@@ -1386,6 +1523,168 @@ def train_cabin_model():
     _cabin_artifacts = joblib.load(CABIN_MODEL_PATH)
     return res
 
+# ADMINISTRATION BO AND STATION
+def train_admin_bo_model():
+    """Train, simpan artifacts, dan return metrics."""
+    global _admin_bo_model_artifacts
+     
+    def load_training_data() -> pd.DataFrame:
+        if not os.path.exists(EXCEL_PATH):
+            raise RuntimeError(f"File Excel tidak ditemukan: {EXCEL_PATH}")
+
+        df = pd.read_excel(EXCEL_PATH, sheet_name=SHEET_NAME, skiprows=1)
+        df = df.iloc[:, 1:]  # buang kolom index pertama
+
+        df1 = df[(df['STATION']>1) & (df['ADMINISTRATION BO']>1) & 
+                (df['BLOCK HOURS']>0) & (df['FLIGHT HOURS']>0) & 
+                (df['ASK (000)']>0)].copy()
+        
+        RENAME_MAP = {
+            'SALES ORGANIZATION': 'SALES_ORGANIZATION', 
+            'COCKPIT CREW TRAVEL': 'COCKPIT_CREW_TRAVEL', 
+            'ASK (000) C CLASS': 'ASK_000_C_CLASS', 
+            'ASK (000)': 'ASK_000',
+            'CABIN CREW TRAVEL': 'CABIN_CREW_TRAVEL',
+            'Region': 'REGION', 
+            'GA Service': 'GA_SERVICE',
+            'ADMINISTRATION BO': 'ADMINISTRATION_BO'
+        }
+
+        df1 = df1.rename(columns=RENAME_MAP)
+        return df1
+    
+    df1 = load_training_data()
+    X = df1[SELECTED_FEATURES_ADMIN_BO].copy()
+    y = df1['ADMINISTRATION_BO'].copy()
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=25)
+    
+    encoder = OneHotEncoder(handle_unknown='ignore', sparse_output=False)
+    encoder.fit(X_train[CATEGORICAL_COLS_ADMIN_BO])
+
+    X_train_encoded = encoder.transform(X_train[CATEGORICAL_COLS_ADMIN_BO])
+    X_test_encoded = encoder.transform(X_test[CATEGORICAL_COLS_ADMIN_BO])
+
+    encoded_cols = encoder.get_feature_names_out(CATEGORICAL_COLS_ADMIN_BO)
+
+    X_train_encoded = pd.DataFrame(X_train_encoded, columns=encoded_cols, index=X_train.index)
+    X_test_encoded = pd.DataFrame(X_test_encoded, columns=encoded_cols, index=X_test.index)
+
+    X_train_final = pd.concat([X_train[NUMERICAL_COLS_ADMIN_BO], X_train_encoded], axis=1)
+    X_test_final = pd.concat([X_test[NUMERICAL_COLS_ADMIN_BO], X_test_encoded], axis=1)
+
+    model = XGBRegressor(n_estimators=2000, learning_rate=0.5, objective="reg:squarederror")
+    model.fit(X_train_final, y_train)
+
+    y_pred = model.predict(X_test_final)
+
+    mape = mean_absolute_percentage_error(y_test, y_pred)
+
+    rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+    
+    artifacts = {
+        "model": model,
+        "encoder": encoder,
+        "categorical_cols": CATEGORICAL_COLS_ADMIN_BO,
+        "numeric_cols": NUMERICAL_COLS_ADMIN_BO,
+        "selected_features": SELECTED_FEATURES_ADMIN_BO,
+    }
+
+    os.makedirs(os.path.dirname(ADMIN_BO_MODEL_PATH), exist_ok=True)
+    
+    joblib.dump(artifacts, ADMIN_BO_MODEL_PATH)
+    
+    _admin_bo_model_artifacts = artifacts  # cache di memori
+    
+    return {
+        "mape": float(mape),
+        "mape_percent": float(mape * 100.0),
+        "rmse": float(rmse),
+        "n_train": int(len(X_train)),
+        "n_test": int(len(X_test)),
+    }
+
+def train_station_model():
+    """Train, simpan artifacts, dan return metrics."""
+    global _admin_bo_model_artifacts
+
+    def load_training_data() -> pd.DataFrame:
+        if not os.path.exists(EXCEL_PATH):
+            raise RuntimeError(f"File Excel tidak ditemukan: {EXCEL_PATH}")
+
+        df = pd.read_excel(EXCEL_PATH, sheet_name=SHEET_NAME, skiprows=1)
+        df = df.iloc[:, 1:]  # buang kolom index pertama
+
+        df1 = df[(df['STATION']>1) & (df['ADMINISTRATION BO']>1) & 
+                (df['FLIGHT KILOMETERS']>0) & 
+                (df['ASK (000)']>0)].copy()
+        
+        RENAME_MAP = {
+            'COCKPIT CREW TRAVEL': 'COCKPIT_CREW_TRAVEL', 
+            'CABIN CREW TRAVEL': 'CABIN_CREW_TRAVEL',
+            'FLIGHT KILOMETERS': 'FLIGHT_KILOMETERS', 
+            'COCKPIT CREW PERSON': 'COCKPIT_CREW_PERSON',
+            'Region': 'REGION', 
+            'GA Service': 'GA_SERVICE',
+            'ADMINISTRATION BO': 'ADMINISTRATION_BO'
+        }
+
+        df1 = df1.rename(columns=RENAME_MAP)
+        return df1
+    
+    df1 = load_training_data()
+    X = df1[SELECTED_FEATURES_STATION].copy()
+    y = df1['STATION'].copy()
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=10)
+    
+    encoder = OneHotEncoder(handle_unknown='ignore', sparse_output=False)
+    encoder.fit(X_train[CATEGORICAL_COLS_STATION])
+
+    X_train_encoded = encoder.transform(X_train[CATEGORICAL_COLS_STATION])
+    X_test_encoded = encoder.transform(X_test[CATEGORICAL_COLS_STATION])
+
+    encoded_cols = encoder.get_feature_names_out(CATEGORICAL_COLS_STATION)
+
+    X_train_encoded = pd.DataFrame(X_train_encoded, columns=encoded_cols, index=X_train.index)
+    X_test_encoded = pd.DataFrame(X_test_encoded, columns=encoded_cols, index=X_test.index)
+
+    X_train_final = pd.concat([X_train[NUMERICAL_COLS_STATION], X_train_encoded], axis=1)
+    X_test_final = pd.concat([X_test[NUMERICAL_COLS_STATION], X_test_encoded], axis=1)
+
+    model = XGBRegressor(n_estimators=1500, learning_rate=0.05, objective="reg:squarederror")
+    model.fit(X_train_final, y_train)
+
+    y_pred = model.predict(X_test_final)
+
+    mape = mean_absolute_percentage_error(y_test, y_pred)
+
+    rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+    
+    artifacts = {
+        "model": model,
+        "encoder": encoder,
+        "categorical_cols": CATEGORICAL_COLS_STATION,
+        "numeric_cols": NUMERICAL_COLS_STATION,
+        "selected_features": SELECTED_FEATURES_STATION,
+    }
+
+    os.makedirs(os.path.dirname(STATION_MODEL_PATH), exist_ok=True)
+    
+    joblib.dump(artifacts, STATION_MODEL_PATH)
+    
+    _station_model_artifacts = artifacts  # cache di memori
+    
+    return {
+        "mape": float(mape),
+        "mape_percent": float(mape * 100.0),
+        "rmse": float(rmse),
+        "n_train": int(len(X_train)),
+        "n_test": int(len(X_test)),
+    }
+    
 
 # =====================================================================
 # FASTAPI ENDPOINTS
@@ -1595,8 +1894,76 @@ def predict_obsc(req: OBSCPredictRequest):
         "catering": CateringPredictResponse(predictions=preds_catering)
     }
 
+@app.post("/predict_bofsc", response_model=BOFSCPredictResponse)
+def predict_bofsc(req: BOFSCPredictRequest):
+    try:
+        artifacts_admin_bo = load_admin_bo_artifacts()
+        artifacts_station = load_station_artifacts()
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
+    model_admin_bo = artifacts_admin_bo["model"]
+    encoder_admin_bo = artifacts_admin_bo["encoder"]
+    categorical_admin_bo = artifacts_admin_bo["categorical_cols"]
+    numeric_cols_admin_bo = artifacts_admin_bo["numeric_cols"]
 
+    model_station = artifacts_station["model"]
+    encoder_station = artifacts_station["encoder"]
+    categorical_cols_station = artifacts_station["categorical_cols"]
+    numeric_cols_station = artifacts_station["numeric_cols"]
 
+    # Pydantic -> DataFrame
+    data_admin_bo = pd.DataFrame([r.dict() for r in req.administration_bo.records])
+    data_station =pd.DataFrame([r.dict() for r in req.station.records])
+
+    # Pastikan semua fitur ada
+    missing = [c for c in SELECTED_FEATURES_ADMIN_BO if c not in data_admin_bo.columns]
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Fitur berikut hilang di request: {missing}",
+        )
+    
+    missing = [c for c in SELECTED_FEATURES_STATION if c not in data_station.columns]
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Fitur berikut hilang di request: {missing}",
+        )
+
+    # ADMINISTRATION BO
+    df_cat = data_admin_bo[categorical_admin_bo]
+    df_num = data_admin_bo[numeric_cols_admin_bo]
+
+    df_cat_enc = encoder_admin_bo.transform(df_cat)
+    enc_cols = encoder_admin_bo.get_feature_names_out(categorical_admin_bo)
+
+    df_cat_enc_df = pd.DataFrame(df_cat_enc, columns=enc_cols, index=data_admin_bo.index)
+
+    X_final = pd.concat([df_num, df_cat_enc_df], axis=1)
+
+    preds_admin_bo = model_admin_bo.predict(X_final)
+    preds_admin_bo = [float(p) for p in preds_admin_bo]
+
+    # STATION
+
+    df_cat = data_station[categorical_cols_station]
+    df_num = data_station[numeric_cols_station]
+
+    df_cat_enc = encoder_station.transform(df_cat)
+    enc_cols = encoder_station.get_feature_names_out(categorical_cols_station)
+
+    df_cat_enc_df = pd.DataFrame(df_cat_enc, columns=enc_cols, index=data_station.index)
+
+    X_final = pd.concat([df_num, df_cat_enc_df], axis=1)
+
+    preds_station = model_station.predict(X_final)
+    preds_station = [float(p) for p in preds_station]
+
+    return {
+        "administration_bo": AdminBOPredictResponse(predictions=preds_admin_bo),
+        "station": StationPredictResponse(predictions=preds_station)
+    }
 
 # =======================
 # TRAIN
@@ -1763,6 +2130,21 @@ def predict_cabin(req: CrewPredictRequest):
         return CrewPredictResponse(predictions=preds)
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
+
+# =============================
+# ADMINISTRATION BO AND STATION 
+# =============================
+@app.post("/train_bofsc", response_model=BOFSCTrainResponse)
+def train_bofsc():
+    """Latih ulang model dari file Excel."""
+    try:
+        metrics_admin_bo = train_admin_bo_model()
+        metrics_station = train_station_model()
+
+        return {"administration_bo": AdminBOTrainResponse(**metrics_admin_bo),               
+                "station": StationTrainResponse(**metrics_station)}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 if __name__ == "__main__":

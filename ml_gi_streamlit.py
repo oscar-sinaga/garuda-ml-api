@@ -46,6 +46,9 @@ API_COCKPIT_PREDICT = f"{BASE_API}/predict_cockpit"
 
 API_CABIN_TRAIN = f"{BASE_API}/train_cabin"
 API_CABIN_PREDICT = f"{BASE_API}/predict_cabin"
+
+API_BOFSC_TRAIN = f"{BASE_API}/train_bofsc"
+API_BOFSC_PREDICT = f"{BASE_API}/predict_bofsc"
 # ==================================================
 # KONFIGURASI FILE DATA (UNTUK DROPDOWN DEFAULT)
 # ==================================================
@@ -212,6 +215,49 @@ CATEGORICAL_COLS_CATERING = ['FLIGHT_ROUTE',
                             'SERVICE_TYPE', 
                             'REGION']
 
+# BRANCH OFFICE AND FIXED STATION COST
+RENAME_MAP_BOFSC = {'SALES ORGANIZATION': 'SALES_ORGANIZATION', 
+                    'COCKPIT CREW TRAVEL': 'COCKPIT_CREW_TRAVEL', 
+                    'ASK (000) C CLASS': 'ASK_000_C_CLASS', 
+                    'ASK (000)': 'ASK_000',
+                    'CABIN CREW TRAVEL': 'CABIN_CREW_TRAVEL',
+                    'Region': 'REGION', 
+                    'GA Service': 'GA_SERVICE',
+                    'ADMINISTRATION BO': 'ADMINISTRATION_BO',
+                    'FLIGHT KILOMETERS': 'FLIGHT_KILOMETERS', 
+                    'COCKPIT CREW PERSON': 'COCKPIT_CREW_PERSON',
+                    }
+
+SELECTED_FEATURES_ADMIN_BO = ['SALES_ORGANIZATION', 
+                              'COCKPIT_CREW_TRAVEL', 
+                              'ASK_000_C_CLASS', 
+                              'ASK_000',
+                              'CABIN_CREW_TRAVEL',
+                              'PERIODE', 
+                              'QUARTER', 
+                              'REGION', 
+                              'GA_SERVICE']
+
+CATEGORICAL_COLS_ADMIN_BO = ['PERIODE', 
+                              'QUARTER', 
+                              'REGION', 
+                              'GA_SERVICE']
+
+SELECTED_FEATURES_STATION = ['COCKPIT_CREW_TRAVEL', 
+                             'FLIGHT_KILOMETERS', 
+                             'COCKPIT_CREW_PERSON', 
+                             'CABIN_CREW_TRAVEL',
+                             'PERIODE', 
+                             'QUARTER', 
+                             'REGION', 
+                             'GA_SERVICE']
+
+CATEGORICAL_COLS_STATION = ['PERIODE', 
+                            'QUARTER', 
+                            'REGION', 
+                            'GA_SERVICE']
+                    
+
 # ==================================================
 # PAGE CONFIG
 # ==================================================
@@ -228,7 +274,8 @@ st.sidebar.title("🧭 Navigation")
 model_menu = st.sidebar.radio(
     "📦 Model",
     ["Fuel Burn", "Variable Maintenance", "Passenger Commission", "Reservation",
-     "On Board Service and Catering","Maintenance Reserve", "Crew FATA"],
+     "On Board Service and Catering","Maintenance Reserve", "Crew FATA",
+     "Branch Office and Fixed Station Cost"],
 )
 
 action_menu = st.sidebar.radio(
@@ -1324,3 +1371,188 @@ elif model_menu == "Crew FATA":
                             st.error(f"Error: {resp.text}")
                     except Exception as e:
                         st.error(f"Error: {e}")
+
+# ====================================
+# BRANCH OFFICE AND FIXED STATION COST
+# (ADMINISTRATION BO and STATION)
+# ====================================
+
+# Administration BO
+elif model_menu == "Branch Office and Fixed Station Cost":
+    st.title("✈️ Branch Office and Fixed Station Cost Predictor (XGBoost + API)")
+
+    if action_menu == "Predict":
+        st.header("📈 Prediksi Branch Office and Fixed Station Cost ($)")
+        
+        sample_row = df_sample.copy().rename(columns=RENAME_MAP_BOFSC).iloc[0]
+
+        df_filter_bofsc = df_filter1.copy().rename(columns=RENAME_MAP_BOFSC)
+        
+        actual_admin_bo = sample_row["ADMINISTRATION_BO"]
+        actual_station = sample_row["STATION"]
+        
+        st.caption("Default value diisi dari salah satu contoh flight di dataset.")
+
+        # =====================
+        # Input fitur
+        # =====================
+
+        with st.form("predict_form"):
+            st.subheader("Administration BO")
+
+            st.markdown("#### Categorical Features")
+            num_cols1, num_cols2, num_cols3 = st.columns(3)
+
+            # Categorical
+            periode_options = sorted(df_filter_bofsc["PERIODE"].dropna().unique())
+            quarter_options = sorted(df_filter_bofsc["QUARTER"].dropna().unique())
+            region_options = sorted(df_filter_bofsc["REGION"].dropna().unique())
+            ga_service_options = sorted(df_filter_bofsc["GA_SERVICE"].dropna().unique())
+
+            def default_index(options, value):
+                try:
+                    return list(options).index(value)
+                except ValueError:
+                    return 0
+                
+            PERIODE = num_cols1.selectbox(
+                "PERIODE",
+                periode_options,
+                index=default_index(periode_options, sample_row["PERIODE"]),
+            )
+
+            QUARTER = num_cols2.selectbox(
+                "QUARTER",
+                periode_options,
+                index=default_index(quarter_options, sample_row["QUARTER"]),
+            )
+
+            REGION = num_cols3.selectbox(
+                "REGION",
+                region_options,
+                index=default_index(periode_options, sample_row["REGION"]),
+            )
+
+            GA_SERVICE = num_cols1.selectbox(
+                "GA_SERVICE",
+                ga_service_options,
+                index=default_index(periode_options, sample_row["GA_SERVICE"]),
+            )
+
+            # Numeric
+
+            st.markdown("#### Numerical Features")
+            num_cols1, num_cols2, num_cols3 = st.columns(3)
+
+            SALES_ORGANIZATION = num_cols1.number_input(
+                "SALES_ORGANIZATION", value=float(sample_row["SALES_ORGANIZATION"])
+            )
+
+            COCKPIT_CREW_TRAVEL = num_cols2.number_input(
+                "COCKPIT_CREW_TRAVEL", value=float(sample_row["COCKPIT_CREW_TRAVEL"])
+            )
+
+            ASK_000_C_CLASS = num_cols3.number_input(
+                "ASK_000_C_CLASS", value=float(sample_row["ASK_000_C_CLASS"])
+            )
+            
+            ASK_000 = num_cols1.number_input(
+                "ASK_000", value=float(sample_row["ASK_000"])
+            )
+
+            CABIN_CREW_TRAVEL = num_cols2.number_input(
+                "CABIN_CREW_TRAVEL", value=float(sample_row["CABIN_CREW_TRAVEL"])
+            )
+
+            st.markdown("---")
+            st.subheader("Station")
+
+            FLIGHT_KILOMETERS = num_cols1.number_input(
+                "FLIGHT_KILOMETERS", value=float(sample_row["FLIGHT_KILOMETERS"])
+            )
+            
+            COCKPIT_CREW_PERSON = num_cols2.number_input(
+                "COCKPIT_CREW_PERSON", value=float(sample_row["COCKPIT_CREW_PERSON"])
+            )
+
+            submitted = st.form_submit_button("🔮 Prediksi BOFSC")
+
+        if submitted:
+            record_admin_bo = {
+                'SALES_ORGANIZATION': SALES_ORGANIZATION,
+                'COCKPIT_CREW_TRAVEL': COCKPIT_CREW_TRAVEL,
+                'ASK_000': ASK_000,
+                'ASK_000_C_CLASS': ASK_000_C_CLASS,
+                'CABIN_CREW_TRAVEL': CABIN_CREW_TRAVEL,
+                'PERIODE': PERIODE,
+                'QUARTER': QUARTER,
+                'REGION': REGION,
+                'GA_SERVICE': GA_SERVICE
+                }
+            
+            record_station = {
+                'COCKPIT_CREW_TRAVEL': COCKPIT_CREW_TRAVEL,
+                'FLIGHT_KILOMETERS': FLIGHT_KILOMETERS,
+                'COCKPIT_CREW_PERSON': COCKPIT_CREW_PERSON,
+                'CABIN_CREW_TRAVEL': CABIN_CREW_TRAVEL,
+                'PERIODE': PERIODE,
+                'QUARTER': QUARTER,
+                'REGION': REGION,
+                'GA_SERVICE': GA_SERVICE
+            }
+            
+            try:
+                with st.spinner("Meminta prediksi ke API..."):
+                    resp = requests.post(
+                        API_BOFSC_PREDICT, 
+                        json={
+                                "administration_bo": {"records": [record_admin_bo]},
+                                "station": {"records": [record_station]},
+                            }
+                    )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    pred_admin_bo = data["administration_bo"]["predictions"][0]
+                    pred_station= data["station"]["predictions"][0]
+                    st.success("Prediksi berhasil ✅")
+                    st.metric("Perkiraan Administration BO ($)", f"{pred_admin_bo:,.2f}")
+                    st.metric("Perkiraan Fixed Station Cost ($)", f"{pred_station:,.2f}")
+                    st.json(data)
+                    st.text( f"{actual_admin_bo:,.2f}")
+                    st.text( f"{actual_station:,.2f}")
+                else:
+                    st.error(f"Error {resp.status_code}: {resp.text}")
+            except Exception as e:
+                st.error(f"Gagal menghubungi API: {e}")
+
+    elif action_menu == "Train":
+        st.write("""
+            Endpoint ini akan membaca dataset yang sudah ditentukan di API (`EXCEL_PATH`),
+            melakukan preprocessing, training ulang XGBoost, kemudian menyimpan model baru.
+        """)
+
+        st.warning("""
+        ⚠️ Perhatian:
+        - Proses training bisa memakan waktu (tergantung size dataset).
+        - Model lama akan di-*overwrite* oleh model baru.
+        """)
+
+        if st.button("Train sekarang"):
+            try:
+                with st.spinner("Training model di server API..."):
+                    resp = requests.post(API_BOFSC_TRAIN)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    st.success("Training selesai ✅")
+                    st.json(data)
+                    st.metric("MAPE Administration BO (%)", f"{data['administration_bo']['mape_percent']:.2f}")
+                    st.metric("RMSE Administration BO", f"{data['administration_bo']['rmse']:.2f}")
+
+                    st.metric("MAPE Station (%)", f"{data['station']['mape_percent']:.2f}")
+                    st.metric("RMSE Station", f"{data['station']['rmse']:.2f}")
+                else:
+                    st.error(f"Error {resp.status_code}: {resp.text}")
+            except Exception as e:
+                st.error(f"Gagal menghubungi API: {e}")
+
+                

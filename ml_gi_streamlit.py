@@ -40,22 +40,27 @@ API_RESERVATION_TRAIN   = f"{BASE_API}/train_reservation"
 
 API_OBSC_PREDICT = f"{BASE_API}/predict_obsc"
 API_OBSC_TRAIN = f"{BASE_API}/train_obsc"
+
 API_MR_PREDICT = f"{BASE_API}/predict_mr"
 API_MR_TRAIN   = f"{BASE_API}/train_mr"
 
+API_CREW_PREDICT = f"{BASE_API}/predict_crew_fata"
+API_CREW_TRAIN   = f"{BASE_API}/train_crew_fata"
 
-API_COCKPIT_TRAIN = f"{BASE_API}/train_cockpit"
-API_COCKPIT_PREDICT = f"{BASE_API}/predict_cockpit"
 
-API_CABIN_TRAIN = f"{BASE_API}/train_cabin"
-API_CABIN_PREDICT = f"{BASE_API}/predict_cabin"
 
 API_BOFSC_TRAIN = f"{BASE_API}/train_bofsc"
 API_BOFSC_PREDICT = f"{BASE_API}/predict_bofsc"
+
+
+API_PAYROLL_PREDICT = f"{BASE_API}/predict_payroll"
+API_PAYROLL_TRAIN   = f"{BASE_API}/train_payroll"
+
 # ==================================================
 # KONFIGURASI FILE DATA (UNTUK DROPDOWN DEFAULT)
 # ==================================================
-EXCEL_PATH = "05. Database RP May 2025 - AC REGISTER.xlsx"
+# EXCEL_PATH = "05. Database RP May 2025 - AC REGISTER.xlsx"
+EXCEL_PATH = "C:/Users/hp/Downloads/ACOPY/05. Database RP May 2025 - AC REGISTER.xlsx"
 SHEET_NAME = "Raw"
 
 # =====================
@@ -284,6 +289,39 @@ CATEGORICAL_COLS_STATION = ['PERIODE',
                             'REGION', 
                             'GA_SERVICE']
                     
+# CREW FATA
+
+RENAME_MAP_CREW = {
+    'BLOCK HOURS': 'BLOCK_HOURS',          
+    'FLIGHT KILOMETERS': 'FLIGHT_KILOMETERS',    
+    'ASK (000)': 'ASK_000',            
+    'NUMBER OF LANDING': 'NUMBER_OF_LANDING',    
+    'AIRCRAFT TYPE': 'AIRCRAFT_TYPE',        
+    'SERVICE TYPE': 'SERVICE_TYPE',         
+    'PERIODE': 'PERIODE',
+    'ATK (000)': 'ATK_000', 
+    'SEAT OFFERED': 'SEAT_OFFERED',
+    'COCKPIT CREW TRAVEL': 'COCKPIT_CREW_TRAVEL',
+    'CABIN CREW TRAVEL': 'CABIN_CREW_TRAVEL'
+}
+
+SELECTED_FEATURES_CREW = [
+    'BLOCK_HOURS', 'FLIGHT_KILOMETERS', 'ASK_000', 'NUMBER_OF_LANDING',
+    'AIRCRAFT_TYPE', 'SERVICE_TYPE', 'PERIODE', 'ATK_000', 'SEAT_OFFERED'
+]
+
+# Payroll
+
+RENAME_MAP_PAYROLL = {
+    'BLOCK HOURS': 'BLOCK_HOURS', 'FLIGHT HOURS': 'FLIGHT_HOURS',
+    'FLIGHT KILOMETERS': 'FLIGHT_KILOMETERS', 'NUMBER OF LANDING': 'NUMBER_OF_LANDING',
+    'LEASE AIRCRAFT': 'LEASE_AIRCRAFT', 'AIRCRAFT TYPE': 'AIRCRAFT_TYPE',
+    'SERVICE TYPE': 'SERVICE_TYPE', 'PERIODE': 'PERIODE', 'AC REG': 'AC_REG',
+    'ASK (000) Y CLASS': 'ASK_000_Y_CLASS', 'ASK (000) C CLASS': 'ASK_000_C_CLASS',
+    'FUEL BURN (IN LITER)': 'FUEL_BURN_IN_LITER',
+    'COCKPIT CREW PERSON': 'COCKPIT_CREW_PERSON', 
+    'CABIN CREW PERSON': 'CABIN_CREW_PERSON'
+}
 
 # ==================================================
 # PAGE CONFIG
@@ -298,13 +336,24 @@ st.set_page_config(
 # ==================================================
 st.sidebar.title("🧭 Navigation")
 
+
+
 model_menu = st.sidebar.radio(
     "📦 Model",
-    ["Fuel Burn", "Variable Maintenance", "Passenger Commission", 
-     "Freight Commission", "Reservation", 
-     "On Board Service and Catering","Maintenance Reserve", 
-     "Crew FATA", "Branch Office and Fixed Station Cost"],
+    [
+        "Fuel Burn", 
+        "Variable Maintenance", 
+        "Passenger Commission", 
+        "Freight Commission",              
+        "Reservation",
+        "On Board Service and Catering",
+        "Maintenance Reserve", 
+        "Crew FATA",
+        "Branch Office and Fixed Station Cost", 
+        "Cabin & Crew Payroll"             
+    ],
 )
+
 
 action_menu = st.sidebar.radio(
     "⚙️ Action",
@@ -1175,7 +1224,7 @@ elif model_menu == "Maintenance Reserve":
 
         st.markdown("<br>", unsafe_allow_html=True)
         
-        if st.button("🔮 Prediksi MR Sekarang"):
+        if st.button("🔮 Prediksi Maintenanc Reserve"):
 
             fh_per_cycle = 0.0
             if NUMBER_OF_LANDING != 0:
@@ -1194,14 +1243,12 @@ elif model_menu == "Maintenance Reserve":
                 "ATK_000": ATK_000,
                 "LEASE_AIRCRAFT": LEASE_AIRCRAFT,
                 
-                # Derived Feature (Penting karena masuk ke selected_features training)
                 "FH_per_Cycle": fh_per_cycle
             }
 
             try:
 
                 with st.spinner("Menghubungi API Maintenance Reserve..."):
-                    # Pastikan variabel API_MR_PREDICT sudah didefinisikan di config
                     resp = requests.post(API_MR_PREDICT, json={"records": [record]})
 
                 if resp.status_code == 200:
@@ -1220,15 +1267,18 @@ elif model_menu == "Maintenance Reserve":
                 st.error(f"Gagal menghubungi API: {e}")
 
     elif action_menu == "Train":
-        st.header("🔁 Latih / Retrain Model Maintenance Reserve")
         st.write("""
-            Endpoint ini akan membaca dataset, melakukan grouping berdasarkan `AC REG` & `PERIODE`,
-            menghitung `FH_per_Cycle`, dan melatih ulang model XGBoost untuk Maintenance Reserve.
+            Endpoint ini akan membaca dataset yang sudah ditentukan di API (`EXCEL_PATH`),
+            melakukan preprocessing, training ulang XGBoost, kemudian menyimpan model baru.
         """)
 
-        st.info(f"Fitur yang digunakan: FLIGHT HOURS, FUEL BURN, LANDING, ATK, LEASE, AIRCRAFT TYPE, AC REG, PERIODE, FH_per_Cycle.")
+        st.warning("""
+        ⚠️ Perhatian:
+        - Proses training bisa memakan waktu (tergantung size dataset).
+        - Model lama akan di-*overwrite* oleh model baru.
+        """)
 
-        if st.button("🚀 Train Model MR Sekarang"):
+        if st.button("Train Sekarang"):
             try:
                 with st.spinner("Sedang melatih model MR di server..."):
                     resp = requests.post(API_MR_TRAIN)
@@ -1426,45 +1476,59 @@ elif model_menu == "On Board Service and Catering":
                 st.error(f"Gagal menghubungi API: {e}")
 
 # =========================
-# CREW TRAVEL MODEL
+# CREW FATA
 # =========================
+
 elif model_menu == "Crew FATA":
-    st.title("Crew FATA Cost Prediction")
-    
+
+    st.title("Crew FATA Prediction")
+
     if action_menu == "Predict":
-        st.header("Prediksi Biaya Crew FATA")
-        st.caption("Memprediksi biaya untuk Cockpit & Cabin sekaligus.")
+        st.header("👨‍✈️ Prediksi Biaya Travel Crew")
+        st.write("Masukkan parameter untuk memprediksi biaya **Cockpit Crew** dan **Cabin Crew**.")
 
-        # Ambil sampel default
-        sample_row = df_sample.copy().fillna("").iloc[0]
-        df_filter_crew = df_filter.copy().fillna("")
+        # Load sample data untuk default value
+        sample_row = df_sample.copy().fillna("").rename(columns=RENAME_MAP_CREW).iloc[0]
+        df_filter_crew = df_filter.copy().fillna("").rename(columns=RENAME_MAP_CREW)
 
-        # --- INPUTS ---
-        col1, col2, col3 = st.columns(3)
-        
-        with col1:
-            # Dropdowns
-            actype_opts = sorted(df_filter_crew['AIRCRAFT TYPE'].astype(str).unique())
-            AIRCRAFT_TYPE = st.selectbox("AIRCRAFT TYPE", actype_opts)
+        actual_cockpit = sample_row.get("COCKPIT_CREW_TRAVEL", 0)
+        actual_cabin = sample_row.get("CABIN_CREW_TRAVEL", 0)
+
+        with st.form("predict_crew_form"):
+            st.subheader("Parameter Operasional")
             
-            serv_opts = sorted(df_filter_crew['SERVICE TYPE'].astype(str).unique())
-            SERVICE_TYPE = st.selectbox("SERVICE TYPE", serv_opts)
+            # Categorical Inputs
+            c1, c2, c3 = st.columns(3)
+            
+            # Helper options
+            ac_types = sorted(df_filter_crew["AIRCRAFT_TYPE"].astype(str).unique())
+            srv_types = sorted(df_filter_crew["SERVICE_TYPE"].astype(str).unique())
+            periods = sorted(df_filter_crew["PERIODE"].astype(str).unique())
 
-            per_opts = sorted(df_filter_crew['PERIODE'].astype(str).unique())
-            PERIODE = st.selectbox("PERIODE", per_opts)
+            def get_idx(opts, val):
+                try: return list(opts).index(str(val))
+                except: return 0
 
-        with col2:
-            BLOCK_HOURS = st.number_input("BLOCK HOURS", min_value=0.0, value=float(sample_row.get("BLOCK HOURS", 100.0)))
-            FLIGHT_KILOMETERS = st.number_input("FLIGHT KM", min_value=0.0, value=float(sample_row.get("FLIGHT KILOMETERS", 5000.0)))
-            ASK_000 = st.number_input("ASK (000)", min_value=0.0, value=float(sample_row.get("ASK (000)", 1000.0)))
-        
-        with col3:
-            NUMBER_OF_LANDING = st.number_input("NUMBER OF LANDING", min_value=0.0, value=float(sample_row.get("NUMBER OF LANDING", 10.0)))
-            ATK_000 = st.number_input("ATK (000)", min_value=0.0, value=float(sample_row.get("ATK (000)", 500.0)))
-            SEAT_OFFERED = st.number_input("SEAT OFFERED", min_value=0.0, value=float(sample_row.get("SEAT OFFERED", 150.0)))
+            AIRCRAFT_TYPE = c1.selectbox("AIRCRAFT TYPE", ac_types, index=get_idx(ac_types, sample_row["AIRCRAFT_TYPE"]))
+            SERVICE_TYPE = c2.selectbox("SERVICE TYPE", srv_types, index=get_idx(srv_types, sample_row["SERVICE_TYPE"]))
+            PERIODE = c3.selectbox("PERIODE", periods, index=get_idx(periods, sample_row["PERIODE"]))
 
-        # --- PREDICT BUTTON ---
-        if st.button("🚀 Prediksi Biaya Crew"):
+            st.markdown("---")
+            st.subheader("Fitur Numerik")
+
+            n1, n2, n3 = st.columns(3)
+
+            BLOCK_HOURS = n1.number_input("BLOCK HOURS", min_value=0.0, value=float(sample_row["BLOCK_HOURS"]))
+            FLIGHT_KILOMETERS = n2.number_input("FLIGHT KILOMETERS", min_value=0.0, value=float(sample_row["FLIGHT_KILOMETERS"]))
+            ASK_000 = n3.number_input("ASK (000)", min_value=0.0, value=float(sample_row["ASK_000"]))
+
+            NUMBER_OF_LANDING = n1.number_input("NUMBER OF LANDING", min_value=0.0, value=float(sample_row["NUMBER_OF_LANDING"]))
+            ATK_000 = n2.number_input("ATK (000)", min_value=0.0, value=float(sample_row["ATK_000"]))
+            SEAT_OFFERED = n3.number_input("SEAT OFFERED", min_value=0.0, value=float(sample_row["SEAT_OFFERED"]))
+
+            submitted = st.form_submit_button("🚀 Prediksi Sekarang")
+
+        if submitted:
             record = {
                 "BLOCK_HOURS": BLOCK_HOURS,
                 "FLIGHT_KILOMETERS": FLIGHT_KILOMETERS,
@@ -1477,66 +1541,79 @@ elif model_menu == "Crew FATA":
                 "PERIODE": PERIODE
             }
 
-            col_res1, col_res2 = st.columns(2)
+            try:
+                with st.spinner("Menghubungi API Crew FATA..."):
+                    resp = requests.post(API_CREW_PREDICT, json={"records": [record]})
 
-            # Hitung Cockpit
-            with col_res1:
-                try:
-                    resp_cp = requests.post(API_COCKPIT_PREDICT, json={"records": [record]})
-                    if resp_cp.status_code == 200:
-                        val = resp_cp.json()['predictions'][0]
-                        st.success(f"Cockpit Crew: **${val:,.2f}**")
-                    else:
-                        st.warning(f"Cockpit Model belum siap (Train dulu).")
-                except:
-                    st.error("Gagal koneksi Cockpit API")
+                if resp.status_code == 200:
+                    res = resp.json()
+                    pred_cockpit = res['cockpit_predictions'][0]
+                    pred_cabin = res['cabin_predictions'][0]
 
-            # Hitung Cabin
-            with col_res2:
-                try:
-                    resp_cb = requests.post(API_CABIN_PREDICT, json={"records": [record]})
-                    if resp_cb.status_code == 200:
-                        val = resp_cb.json()['predictions'][0]
-                        st.success(f"Cabin Crew: **${val:,.2f}**")
-                    else:
-                        st.warning(f"Cabin Model belum siap (Train dulu).")
-                except:
-                    st.error("Gagal koneksi Cabin API")
+                    st.success("Prediksi Selesai! ✅")
+                    
+                    col_res1, col_res2 = st.columns(2)
+
+                    with col_res1:
+                        st.info("👨‍✈️ **COCKPIT CREW TRAVEL**")
+                        st.metric("Prediksi ($)", f"{pred_cockpit:,.2f}")
+                        st.caption(f"Actual (Sample): {actual_cockpit:,.2f}")
+
+                    with col_res2:
+                        st.info("👩‍✈️ **CABIN CREW TRAVEL**")
+                        st.metric("Prediksi ($)", f"{pred_cabin:,.2f}")
+                        st.caption(f"Actual (Sample): {actual_cabin:,.2f}")
+                    
+                    st.json(res)
+
+                else:
+                    st.error(f"API Error {resp.status_code}: {resp.text}")
+            except Exception as e:
+                st.error(f"Connection Error: {e}")
+
 
     elif action_menu == "Train":
-        st.header("🔁 Training Model Crew")
         
-        c_train1, c_train2 = st.columns(2)
-        
-        with c_train1:
-            st.subheader("👨‍✈️ Cockpit Model")
-            if st.button("Train Cockpit Model"):
-                with st.spinner("Training Cockpit..."):
-                    try:
-                        resp = requests.post(API_COCKPIT_TRAIN)
-                        if resp.status_code == 200:
-                            d = resp.json()
-                            st.success("Done!")
-                            st.metric("MAPE", f"{d['mape_percent']:.2f}%")
-                        else:
-                            st.error(f"Error: {resp.text}")
-                    except Exception as e:
-                        st.error(f"Error: {e}")
+        st.write("Endpoint ini akan membaca dataset yang sudah ditentukan di API (EXCEL_PATH), melakukan preprocessing, training ulang XGBoost, kemudian menyimpan model baru.")
 
-        with c_train2:
-            st.subheader("👩‍✈️ Cabin Model")
-            if st.button("Train Cabin Model"):
-                with st.spinner("Training Cabin..."):
-                    try:
-                        resp = requests.post(API_CABIN_TRAIN)
-                        if resp.status_code == 200:
-                            d = resp.json()
-                            st.success("Done!")
-                            st.metric("MAPE", f"{d['mape_percent']:.2f}%")
-                        else:
-                            st.error(f"Error: {resp.text}")
-                    except Exception as e:
-                        st.error(f"Error: {e}")
+        st.warning("""
+        ⚠️ Perhatian:
+        - Proses training bisa memakan waktu (tergantung size dataset).
+        - Model lama akan di-*overwrite* oleh model baru.
+        """)
+
+        if st.button("Train Sekarang"):
+            try:
+                with st.spinner("Sedang melatih model Cockpit & Cabin... Mohon tunggu..."):
+                    resp = requests.post(API_CREW_TRAIN)
+                
+                if resp.status_code == 200:
+                    data = resp.json()
+                    st.success("Training Selesai! ✅")
+
+                    # Tampilkan hasil side-by-side
+                    c1, c2 = st.columns(2)
+
+                    with c1:
+                        st.subheader("👨‍✈️ Cockpit Model")
+                        st.metric("MAPE (%)", f"{data['cockpit']['mape_percent']:.2f}%")
+                        st.metric("RMSE", f"{data['cockpit']['rmse']:.2f}")
+                        st.write(f"Train/Test: {data['cockpit']['n_train']} / {data['cockpit']['n_test']}")
+
+                    with c2:
+                        st.subheader("👩‍✈️ Cabin Model")
+                        st.metric("MAPE (%)", f"{data['cabin']['mape_percent']:.2f}%")
+                        st.metric("RMSE", f"{data['cabin']['rmse']:.2f}")
+                        st.write(f"Train/Test: {data['cabin']['n_train']} / {data['cabin']['n_test']}")
+
+                    with st.expander("Lihat Full Response JSON"):
+                        st.json(data)
+                
+                else:
+                    st.error(f"Training Gagal: {resp.text}")
+
+            except Exception as e:
+                st.error(f"Gagal menghubungi API: {e}")
 
 # ====================================
 # BRANCH OFFICE AND FIXED STATION COST
@@ -1721,4 +1798,138 @@ elif model_menu == "Branch Office and Fixed Station Cost":
             except Exception as e:
                 st.error(f"Gagal menghubungi API: {e}")
 
-                
+#=============================================
+# PAYROLL
+#=============================================
+
+
+elif model_menu == "Cabin & Crew Payroll":
+    st.title("💸 Cabin & Crew Payroll Prediction")
+
+    if action_menu == "Predict":
+        st.header("🔮 Prediksi Payroll Cost")
+        st.markdown("Memprediksi **Cockpit Crew Person** & **Cabin Crew Person** Cost menggunakan XGBoost")
+
+        
+        # Sample data setup
+        sample_row = df_sample.copy().fillna(0).rename(columns=RENAME_MAP_PAYROLL).iloc[0]
+        df_filter_pay = df_filter.copy().fillna("").rename(columns=RENAME_MAP_PAYROLL)
+        
+        act_cp = sample_row.get("COCKPIT_CREW_PERSON", 0)
+        act_cb = sample_row.get("CABIN_CREW_PERSON", 0)
+        
+        with st.form("form_payroll"):
+            st.subheader("Categorical")
+            c1, c2, c3 = st.columns(3)
+            
+            # Helper options
+            ac_types = sorted(df_filter_pay["AIRCRAFT_TYPE"].astype(str).unique())
+            srv_types = sorted(df_filter_pay["SERVICE_TYPE"].astype(str).unique())
+            periods = sorted(df_filter_pay["PERIODE"].astype(str).unique())
+            ac_regs = sorted(df_filter_pay["AC_REG"].astype(str).unique()) if "AC_REG" in df_filter_pay.columns else ["PK-GAA"]
+            
+            def idx(opts, val):
+                try: return list(opts).index(str(val))
+                except: return 0
+
+            AIRCRAFT_TYPE = c1.selectbox("AIRCRAFT TYPE", ac_types, index=idx(ac_types, sample_row["AIRCRAFT_TYPE"]))
+            SERVICE_TYPE = c2.selectbox("SERVICE TYPE", srv_types, index=idx(srv_types, sample_row["SERVICE_TYPE"]))
+            PERIODE = c3.selectbox("PERIODE", periods, index=idx(periods, sample_row["PERIODE"]))
+            AC_REG = st.selectbox("AC REG (Optional Identity)", ac_regs, index=0)
+            
+            st.markdown("---")
+            st.subheader("Numerical")
+            
+            # Input Numerik Gabungan
+            n1, n2, n3 = st.columns(3)
+            BLOCK_HOURS = n1.number_input("BLOCK HOURS", min_value=0.0, value=float(sample_row["BLOCK_HOURS"]))
+            FLIGHT_HOURS = n2.number_input("FLIGHT HOURS", min_value=0.0, value=float(sample_row["FLIGHT_HOURS"]))
+            FLIGHT_KILOMETERS = n3.number_input("FLIGHT KILOMETERS", min_value=0.0, value=float(sample_row["FLIGHT_KILOMETERS"]))
+            
+            n4, n5, n6 = st.columns(3)
+            NUMBER_OF_LANDING = n4.number_input("NUMBER OF LANDING", min_value=0.0, value=float(sample_row["NUMBER_OF_LANDING"]))
+            LEASE_AIRCRAFT = n5.number_input("LEASE AIRCRAFT", min_value=0.0, value=float(sample_row["LEASE_AIRCRAFT"]))
+            FUEL_BURN_IN_LITER = n6.number_input("FUEL BURN (LITER)", min_value=0.0, value=float(sample_row["FUEL_BURN_IN_LITER"]))
+            
+            n7, n8 = st.columns(2)
+            ASK_000_Y_CLASS = n7.number_input("ASK (000) Y CLASS", min_value=0.0, value=float(sample_row["ASK_000_Y_CLASS"]))
+            ASK_000_C_CLASS = n8.number_input("ASK (000) C CLASS", min_value=0.0, value=float(sample_row["ASK_000_C_CLASS"]))
+            
+            submit = st.form_submit_button("Train Sekarang")
+            
+        if submit:
+            record = {
+                "AC_REG": AC_REG, "PERIODE": PERIODE,
+                "AIRCRAFT_TYPE": AIRCRAFT_TYPE, "SERVICE_TYPE": SERVICE_TYPE,
+                "BLOCK_HOURS": BLOCK_HOURS, "FLIGHT_HOURS": FLIGHT_HOURS,
+                "FLIGHT_KILOMETERS": FLIGHT_KILOMETERS, "NUMBER_OF_LANDING": NUMBER_OF_LANDING,
+                "LEASE_AIRCRAFT": LEASE_AIRCRAFT, "FUEL_BURN_IN_LITER": FUEL_BURN_IN_LITER,
+                "ASK_000_Y_CLASS": ASK_000_Y_CLASS, "ASK_000_C_CLASS": ASK_000_C_CLASS
+            }
+            
+            try:
+                with st.spinner("Meminta prediksi ke API..."):
+                    resp = requests.post(API_PAYROLL_PREDICT, json={"records": [record]})
+                    
+                if resp.status_code == 200:
+                    res = resp.json()
+                    val_cp = res["cockpit_person_cost"][0]
+                    val_cb = res["cabin_person_cost"][0]
+                    
+                    st.success("Prediksi Selesai! ✅")
+                    
+                    c_res1, c_res2 = st.columns(2)
+                    with c_res1:
+                        st.info("👨‍✈️ **COCKPIT CREW PERSON**")
+                        st.metric("Prediction ($)", f"{val_cp:,.2f}")
+                        st.caption(f"Actual Sample: {act_cp:,.2f}")
+                        
+                    with c_res2:
+                        st.info("👩‍✈️ **CABIN CREW PERSON**")
+                        st.metric("Prediction ($)", f"{val_cb:,.2f}")
+                        st.caption(f"Actual Sample: {act_cb:,.2f}")
+                        
+                    st.json(res)
+                else:
+                    st.error(f"Error {resp.status_code}: {resp.text}")
+            except Exception as e:
+                st.error(f"Connection Error: {e}")
+
+    elif action_menu == "Train":
+        st.write("""
+            Endpoint ini akan membaca dataset yang sudah ditentukan di API (`EXCEL_PATH`),
+            melakukan preprocessing, training ulang XGBoost, kemudian menyimpan model baru.
+        """)
+
+        st.warning("""
+        ⚠️ Perhatian:
+        - Proses training bisa memakan waktu (tergantung size dataset).
+        - Model lama akan di-*overwrite* oleh model baru.
+        """)
+        
+        if st.button("Train Sekarang"):
+            try:
+                with st.spinner("Training model di server API.."):
+                    resp = requests.post(API_PAYROLL_TRAIN)
+                    
+                if resp.status_code == 200:
+                    data = resp.json()
+                    st.success("Training Berhasil! ✅")
+                    
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        st.subheader("👨‍✈️ Cockpit Model")
+                        st.metric("MAPE (%)", f"{data['cockpit']['mape_percent']:.2f}%")
+                        st.metric("RMSE", f"{data['cockpit']['rmse']:.2f}")
+                    
+                    with c2:
+                        st.subheader("👩‍✈️ Cabin Model")
+                        st.metric("MAPE (%)", f"{data['cabin']['mape_percent']:.2f}%")
+                        st.metric("RMSE", f"{data['cabin']['rmse']:.2f}")
+                        
+                    with st.expander("Detail JSON Response"):
+                        st.json(data)
+                else:
+                    st.error(f"Training Failed: {resp.text}")
+            except Exception as e:
+                st.error(f"Error: {e}")

@@ -11,6 +11,7 @@ from sklearn.preprocessing import OneHotEncoder
 from xgboost import XGBRegressor
 from lightgbm import LGBMRegressor
 from typing import Union
+from fastapi.middleware.cors import CORSMiddleware
 
 
 # =====================================================================
@@ -18,7 +19,8 @@ from typing import Union
 # =====================================================================
 
 # Sheet Excel 
-EXCEL_PATH = "05. Database RP May 2025 - AC REGISTER.xlsx"
+# EXCEL_PATH = "05. Database RP May 2025 - AC REGISTER.xlsx"
+EXCEL_PATH = "C:/Users/hp/Downloads/ACOPY/05. Database RP May 2025 - AC REGISTER.xlsx"
 SHEET_NAME = "Raw"
 
 # Model Path
@@ -29,10 +31,12 @@ R_MODEL_PATH = "models/reservation_xgb.joblib"
 OBS_MODEL_PATH = "models/on_board_service_xgb.joblib"
 C_MODEL_PATH = "models/catering_xgb.joblib"
 MR_MODEL_PATH = "models/maintenance_reserve_xgb.joblib"
-COCKPIT_MODEL_PATH = "models/cockpit_crew_xgb.joblib"
-CABIN_MODEL_PATH = "models/cabin_crew_xgb.joblib"
+CF_COCKPIT_MODEL_PATH = "models/cockpit_xgb.joblib"
+CF_CABIN_MODEL_PATH = "models/cabin_xgb.joblib"
 STATION_MODEL_PATH = "models/station_xgb.joblib"
 ADMIN_BO_MODEL_PATH = "models/admin_bo_xgb.joblib"
+PAYROLL_COCKPIT_MODEL_PATH = "models/payroll_cockpit_xgb.joblib"
+PAYROLL_CABIN_MODEL_PATH = "models/payroll_cabin_xgb.joblib"
 
 
 # ========================== SELECTED FEATURES ==========================
@@ -124,6 +128,7 @@ CATEGORICAL_COLS_RESERVATION = ['SERVICE_TYPE',
 
 NUMERICAL_COLS_RESERVATION = list(set(SELECTED_FEATURES_RESERVATION) - set(CATEGORICAL_COLS_RESERVATION))
 
+# MR FEATURES
 SELECTED_FEATURES_MR_MODEL = [
     'FLIGHT_HOURS',
     'FUEL_BURN_IN_LITER',
@@ -133,27 +138,27 @@ SELECTED_FEATURES_MR_MODEL = [
     'AIRCRAFT_TYPE',
     'AC_REG',
     'PERIODE',
-    'FH_per_Cycle' # Fitur turunan
+    'FH_per_Cycle' 
 ]
 
 CATEGORICAL_COLS_MR = ['AC_REG', 'PERIODE', 'AIRCRAFT_TYPE']
 NUMERICAL_COLS_MR = list(set(SELECTED_FEATURES_MR_MODEL) - set(CATEGORICAL_COLS_MR))
 TARGET_COL_MR = "MAINTENANCE RESERVE"
 
-SELECTED_FEATURES_CREW = [
+# CREW FATA FEATURE
+SELECTED_FEATURES_CREW_FATA = [
     'BLOCK_HOURS',          
     'FLIGHT_KILOMETERS',    
-    'ASK_000',             
+    'ASK_000',            
     'NUMBER_OF_LANDING',    
     'AIRCRAFT_TYPE',        
     'SERVICE_TYPE',         
     'PERIODE',
     'ATK_000', 
-    'SEAT_OFFERED'            
+    'SEAT_OFFERED'
 ]
-
 CATEGORICAL_COLS_CREW = ['AIRCRAFT_TYPE', 'SERVICE_TYPE', 'PERIODE']
-NUMERICAL_COLS_CREW = list(set(SELECTED_FEATURES_CREW) - set(CATEGORICAL_COLS_CREW))
+NUMERICAL_COLS_CREW = list(set(SELECTED_FEATURES_CREW_FATA) - set(CATEGORICAL_COLS_CREW))
 
 # ON BOARD SERVICE AND CATERING features
 
@@ -224,6 +229,21 @@ CATEGORICAL_COLS_STATION = ['PERIODE',
                               'GA_SERVICE']
 
 NUMERICAL_COLS_STATION = list(set(SELECTED_FEATURES_STATION) - set(CATEGORICAL_COLS_STATION))
+
+# PAYROLL FEATURE
+FEATURES_PAYROLL_COCKPIT = [
+    'BLOCK_HOURS', 'FLIGHT_HOURS', 'FLIGHT_KILOMETERS', 
+    'NUMBER_OF_LANDING', 'LEASE_AIRCRAFT', 
+    'AIRCRAFT_TYPE', 'SERVICE_TYPE', 'PERIODE'
+]
+
+FEATURES_PAYROLL_CABIN = [
+    'ASK_000_Y_CLASS', 'ASK_000_C_CLASS', 'BLOCK_HOURS',
+    'FUEL_BURN_IN_LITER', 'LEASE_AIRCRAFT',
+    'AIRCRAFT_TYPE', 'NUMBER_OF_LANDING', 'SERVICE_TYPE', 'PERIODE'
+]
+
+CATEGORICAL_COLS_PAYROLL = ['AIRCRAFT_TYPE', 'SERVICE_TYPE', 'PERIODE']
 
 # =====================================================================
 # MODEL REQUEST FORMAT
@@ -406,33 +426,7 @@ class OBSCPredictResponse(BaseModel):
 class OBSCTrainResponse(BaseModel):
     obs : OBSTrainResponse
     catering : CateringTrainResponse
-
-# Crew
-class CrewRecord(BaseModel):
-    BLOCK_HOURS: float
-    FLIGHT_KILOMETERS: float
-    ASK_000: float
-    NUMBER_OF_LANDING: float
-    ATK_000: float
-    SEAT_OFFERED: float
-    AIRCRAFT_TYPE: str
-    SERVICE_TYPE: str
-    PERIODE: str
-
-class CrewPredictRequest(BaseModel):
-    records: List[CrewRecord]
-
-class CrewPredictResponse(BaseModel):
-    predictions: List[float]
-
-class CrewTrainResponse(BaseModel):
-    target: str
-    mape: float
-    mape_percent: float
-    rmse: float
-    n_train: int
-    n_test: int
-      
+   
       
 # Maintenance Reserve      
 class MRRecord(BaseModel):
@@ -457,6 +451,37 @@ class MRTrainResponse(BaseModel):
     rmse: float
     n_train: int
     n_test: int
+
+
+# CREW FATA
+class CrewFATARecord(BaseModel):
+    BLOCK_HOURS: float
+    FLIGHT_KILOMETERS: float
+    ASK_000: float
+    NUMBER_OF_LANDING: float
+    ATK_000: float
+    SEAT_OFFERED: float
+    AIRCRAFT_TYPE: str
+    SERVICE_TYPE: str
+    PERIODE: str
+
+class CrewFATAPredictRequest(BaseModel):
+    records: List[CrewFATARecord]
+
+class CrewFATAPredictResponse(BaseModel):
+    cockpit_predictions: List[float]
+    cabin_predictions: List[float]
+
+class SingleTrainMetric(BaseModel):
+    mape: float
+    mape_percent: float
+    rmse: float
+    n_train: int
+    n_test: int
+
+class CrewFATATrainResponse(BaseModel):
+    cockpit: SingleTrainMetric
+    cabin: SingleTrainMetric
 
 # Branch office and fixed station cost
 # Administration BO
@@ -521,6 +546,36 @@ class BOFSCTrainResponse(BaseModel):
     administration_bo : AdminBOTrainResponse
     station : StationTrainResponse
 
+
+# PAYROLL
+
+
+class PayrollRecord(BaseModel):
+    AC_REG: str 
+    PERIODE: str
+    AIRCRAFT_TYPE: str
+    SERVICE_TYPE: str
+    
+    BLOCK_HOURS: float
+    FLIGHT_HOURS: float
+    FLIGHT_KILOMETERS: float
+    NUMBER_OF_LANDING: float
+    LEASE_AIRCRAFT: float
+    FUEL_BURN_IN_LITER: float
+    ASK_000_Y_CLASS: float
+    ASK_000_C_CLASS: float
+
+class PayrollPredictRequest(BaseModel):
+    records: List[PayrollRecord]
+
+class PayrollPredictResponse(BaseModel):
+    cockpit_person_cost: List[float]
+    cabin_person_cost: List[float]
+
+class PayrollTrainResponse(BaseModel):
+    cockpit: SingleTrainMetric
+    cabin: SingleTrainMetric
+
 # =====================================================================
 # GLOBAL CACHE
 # =====================================================================
@@ -544,6 +599,9 @@ _cabin_artifacts = None
 
 _admin_bo_model_artifacts = None
 _station_model_artifacts = None
+
+_payroll_cockpit_artifacts = None
+_payroll_cabin_artifacts = None
 
 # =====================================================================
 # LOAD ARTIFACTS
@@ -651,23 +709,34 @@ def load_mr_artifacts():
     _mr_artifacts = joblib.load(MR_MODEL_PATH)
     return _mr_artifacts
 
+#=====================
+# CREW FATA
+#=====================
+def load_crew_artifacts(target_type="cockpit"):
+    """Load model specific to target (cockpit/cabin)"""
+    global _cockpit_artifacts, _cabin_artifacts
+    
+    path = CF_COCKPIT_MODEL_PATH if target_type == "cockpit" else CF_CABIN_MODEL_PATH
+    
+    if target_type == "cockpit":
+        if _cockpit_artifacts is not None: return _cockpit_artifacts
+    else:
+        if _cabin_artifacts is not None: return _cabin_artifacts
 
-def load_cockpit_artifacts():
-    global _cockpit_artifacts
-    if _cockpit_artifacts is not None: return _cockpit_artifacts
-    if not os.path.exists(COCKPIT_MODEL_PATH):
-        raise RuntimeError("Model Cockpit belum dilatih.")
-    _cockpit_artifacts = joblib.load(COCKPIT_MODEL_PATH)
-    return _cockpit_artifacts
+    if not os.path.exists(path):
+        raise RuntimeError(f"Model {target_type} belum dilatih. File tidak ditemukan: {path}")
 
-def load_cabin_artifacts():
-    global _cabin_artifacts
-    if _cabin_artifacts is not None: return _cabin_artifacts
-    if not os.path.exists(CABIN_MODEL_PATH):
-        raise RuntimeError("Model Cabin belum dilatih.")
-    _cabin_artifacts = joblib.load(CABIN_MODEL_PATH)
-    return _cabin_artifacts
+    artifacts = joblib.load(path)
+    
+    if target_type == "cockpit":
+        _cockpit_artifacts = artifacts
+        return _cockpit_artifacts
+    else:
+        _cabin_artifacts = artifacts
+        return _cabin_artifacts
 
+
+#=========================
 
 def load_admin_bo_artifacts():
     """Load model & encoder dari disk jika belum ada di cache."""
@@ -698,6 +767,30 @@ def load_station_artifacts():
 
     _station_model_artifacts = joblib.load(STATION_MODEL_PATH)
     return _station_model_artifacts
+
+
+
+# ================
+# Payroll
+
+def load_payroll_artifacts(role="cockpit"):
+    global _payroll_cockpit_artifacts, _payroll_cabin_artifacts
+    path = PAYROLL_COCKPIT_MODEL_PATH if role == "cockpit" else PAYROLL_CABIN_MODEL_PATH
+    
+    # Check memory cache
+    if role == "cockpit" and _payroll_cockpit_artifacts: return _payroll_cockpit_artifacts
+    if role == "cabin" and _payroll_cabin_artifacts: return _payroll_cabin_artifacts
+    
+    if not os.path.exists(path):
+        raise RuntimeError(f"Model Payroll {role} belum dilatih.")
+        
+    artifacts = joblib.load(path)
+    
+    if role == "cockpit": _payroll_cockpit_artifacts = artifacts
+    else: _payroll_cabin_artifacts = artifacts
+    
+    return artifacts
+#========================
 
 # =====================================================================
 # TRAINING FUNCTION
@@ -1288,8 +1381,9 @@ def train_catering_model():
     }
 
 
-
-# ... (Di bawah fungsi train_reservation_model) ...
+#=============================================
+# MAINTENANCE RESERVE
+#=============================================
 
 def train_mr_model():
     global _mr_artifacts
@@ -1301,8 +1395,7 @@ def train_mr_model():
     df = pd.read_excel(EXCEL_PATH, sheet_name=SHEET_NAME, skiprows=1)
     df = df.iloc[:, 1:] 
     
-    # 2. Filter Data (Sesuai snippet pandas kamu)
-    # Pastikan kolom target ada dan valid
+    # 2. Filter Data 
     if 'MAINTENANCE RESERVE' not in df.columns:
          raise RuntimeError("Kolom 'MAINTENANCE RESERVE' tidak ada di Excel.")
 
@@ -1314,8 +1407,7 @@ def train_mr_model():
         (df['MAINTENANCE RESERVE'] != 0)
     ].copy()
 
-    # 3. Grouping (Logika inti dari snippet kamu)
-    # Kita group by nama kolom asli di Excel
+    # 3. Grouping 
     df_group = df1.groupby(["AC REG", "PERIODE"]).agg({
         "MAINTENANCE RESERVE": "sum",
         "FLIGHT HOURS": "sum",
@@ -1328,7 +1420,6 @@ def train_mr_model():
     }).reset_index()
 
     # 4. Feature Engineering
-    # Menghindari pembagian dengan nol
     df_group['FH_per_Cycle'] = df_group.apply(
         lambda x: x['FLIGHT HOURS'] / x['NUMBER OF LANDING'] if x['NUMBER OF LANDING'] > 0 else 0, 
         axis=1
@@ -1353,7 +1444,6 @@ def train_mr_model():
     y = df_group[TARGET_COL_MR].copy()
 
     splitter = GroupShuffleSplit(test_size=0.2, random_state=42)
-    # Split berdasarkan AC_REG agar data pesawat yang sama tidak bocor
     train_idx, test_idx = next(splitter.split(df_group, groups=df_group["AC_REG"]))
 
     X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
@@ -1368,7 +1458,7 @@ def train_mr_model():
     
     encoded_cols = encoder.get_feature_names_out(CATEGORICAL_COLS_MR)
     
-    # Gabungkan Numeric + Encoded
+    #Numeric + Encoded
     X_train_final = pd.concat([
         X_train[NUMERICAL_COLS_MR].reset_index(drop=True), 
         pd.DataFrame(X_train_enc, columns=encoded_cols, index=X_train.index).reset_index(drop=True)
@@ -1414,79 +1504,71 @@ def train_mr_model():
         "n_test": len(X_test)
     }
 
+#=============================================
+# Crew FATA
+#=============================================
 
-def _train_generic_crew_model(target_col_excel, model_save_path):
-    """
-    Fungsi internal untuk melatih model crew (Cockpit atau Cabin).
-    """
+def train_single_crew_model(target_col, model_path):
+    """Fungsi generik untuk train cockpit atau cabin"""
     if not os.path.exists(EXCEL_PATH):
         raise RuntimeError(f"File Excel tidak ditemukan: {EXCEL_PATH}")
 
-    # 1. Load Data
     df = pd.read_excel(EXCEL_PATH, sheet_name=SHEET_NAME, skiprows=1)
     df = df.iloc[:, 1:]
-    
-    # 2. Rename & Filter
-    RENAME_MAP = {
-        "BLOCK HOURS": "BLOCK_HOURS",
-        "FLIGHT KILOMETERS": "FLIGHT_KILOMETERS",
-        "ASK (000)": "ASK_000",
-        "NUMBER OF LANDING": "NUMBER_OF_LANDING",
-        "AIRCRAFT TYPE": "AIRCRAFT_TYPE",
-        "SERVICE TYPE": "SERVICE_TYPE",
-        "PERIODE": "PERIODE",
-        "ATK (000)": "ATK_000",
-        "SEAT OFFERED": "SEAT_OFFERED",
-        "COCKPIT CREW TRAVEL": "COCKPIT_CREW_TRAVEL",
-        "CABIN CREW TRAVEL": "CABIN_CREW_TRAVEL"
-    }
-    df.rename(columns=RENAME_MAP, inplace=True)
 
-    # Pastikan target ada
-    target_py = RENAME_MAP.get(target_col_excel, target_col_excel)
-    
-    # Filter sesuai snippet kamu
-    df = df[
+    # Rename Mapping
+    rename_map = {
+        'BLOCK HOURS': 'BLOCK_HOURS',          
+        'FLIGHT KILOMETERS': 'FLIGHT_KILOMETERS',    
+        'ASK (000)': 'ASK_000',            
+        'NUMBER OF LANDING': 'NUMBER_OF_LANDING',    
+        'AIRCRAFT TYPE': 'AIRCRAFT_TYPE',        
+        'SERVICE TYPE': 'SERVICE_TYPE',         
+        'PERIODE': 'PERIODE',
+        'ATK (000)': 'ATK_000', 
+        'SEAT OFFERED': 'SEAT_OFFERED',
+        'COCKPIT CREW TRAVEL': 'COCKPIT_CREW_TRAVEL',
+        'CABIN CREW TRAVEL': 'CABIN_CREW_TRAVEL'
+    }
+    df.rename(columns=rename_map, inplace=True)
+
+    # Filter Logic
+    df_clean = df[
         (df['BLOCK_HOURS'] > 0) & 
-        (df['ASK_000'] > 0) & 
-        (df[target_py] > 0) # Kita ambil yang > 0 untuk training agar akurat
+        (df['ASK_000'] > 0) &
+        (df[target_col] >= 0) 
     ].copy()
 
-    X = df[SELECTED_FEATURES_CREW].copy()
-    y = df[target_py].copy()
+    X = df_clean[SELECTED_FEATURES_CREW_FATA].copy()
+    y = df_clean[target_col].copy()
 
-    # 3. Split
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-    # 4. Encoding
     encoder = OneHotEncoder(handle_unknown='ignore', sparse_output=False)
     encoder.fit(X_train[CATEGORICAL_COLS_CREW])
-    
+
     X_train_enc = encoder.transform(X_train[CATEGORICAL_COLS_CREW])
     X_test_enc = encoder.transform(X_test[CATEGORICAL_COLS_CREW])
     enc_cols = encoder.get_feature_names_out(CATEGORICAL_COLS_CREW)
 
     X_train_final = pd.concat([
         X_train[NUMERICAL_COLS_CREW].reset_index(drop=True),
-        pd.DataFrame(X_train_enc, columns=enc_cols).reset_index(drop=True)
+        pd.DataFrame(X_train_enc, columns=enc_cols, index=X_train.index).reset_index(drop=True)
     ], axis=1)
 
     X_test_final = pd.concat([
         X_test[NUMERICAL_COLS_CREW].reset_index(drop=True),
-        pd.DataFrame(X_test_enc, columns=enc_cols).reset_index(drop=True)
+        pd.DataFrame(X_test_enc, columns=enc_cols, index=X_test.index).reset_index(drop=True)
     ], axis=1)
 
-    # 5. Training (Sesuai parameter snippet kamu)
     model = XGBRegressor(
         n_estimators=500,
         max_depth=6,
         learning_rate=0.05,
-        n_jobs=-1,
-        objective="reg:absoluteerror" # Mengikuti snippet
+        objective="reg:squarederror"
     )
     model.fit(X_train_final, y_train)
 
-    # 6. Eval & Save
     y_pred = model.predict(X_test_final)
     mape = mean_absolute_percentage_error(y_test, y_pred)
     rmse = np.sqrt(mean_squared_error(y_test, y_pred))
@@ -1495,14 +1577,14 @@ def _train_generic_crew_model(target_col_excel, model_save_path):
         "model": model,
         "encoder": encoder,
         "categorical_cols": CATEGORICAL_COLS_CREW,
-        "numeric_cols": NUMERICAL_COLS_CREW
+        "numeric_cols": NUMERICAL_COLS_CREW,
+        "selected_features": SELECTED_FEATURES_CREW_FATA
     }
-    
-    os.makedirs(os.path.dirname(model_save_path), exist_ok=True)
-    joblib.dump(artifacts, model_save_path)
+
+    os.makedirs(os.path.dirname(model_path), exist_ok=True)
+    joblib.dump(artifacts, model_path)
 
     return {
-        "target": target_py,
         "mape": float(mape),
         "mape_percent": float(mape * 100),
         "rmse": float(rmse),
@@ -1510,18 +1592,6 @@ def _train_generic_crew_model(target_col_excel, model_save_path):
         "n_test": len(X_test)
     }
 
-# Wrapper functions
-def train_cockpit_model():
-    global _cockpit_artifacts
-    res = _train_generic_crew_model("COCKPIT CREW TRAVEL", COCKPIT_MODEL_PATH)
-    _cockpit_artifacts = joblib.load(COCKPIT_MODEL_PATH)
-    return res
-
-def train_cabin_model():
-    global _cabin_artifacts
-    res = _train_generic_crew_model("CABIN CREW TRAVEL", CABIN_MODEL_PATH)
-    _cabin_artifacts = joblib.load(CABIN_MODEL_PATH)
-    return res
 
 # ADMINISTRATION BO AND STATION
 def train_admin_bo_model():
@@ -1685,13 +1755,106 @@ def train_station_model():
         "n_test": int(len(X_test)),
     }
     
+#=============================================
+# PAYROLL
+#=============================================
+def train_single_payroll_model(target_col, feature_list, model_path):
+    if not os.path.exists(EXCEL_PATH): raise RuntimeError("Excel not found")
+
+    # 1. Load & Rename
+    df = pd.read_excel(EXCEL_PATH, sheet_name=SHEET_NAME, skiprows=1)
+    df = df.iloc[:, 1:]
+    
+    rename_map = {
+        'BLOCK HOURS': 'BLOCK_HOURS', 'FLIGHT HOURS': 'FLIGHT_HOURS',
+        'FLIGHT KILOMETERS': 'FLIGHT_KILOMETERS', 'NUMBER OF LANDING': 'NUMBER_OF_LANDING',
+        'LEASE AIRCRAFT': 'LEASE_AIRCRAFT', 'AIRCRAFT TYPE': 'AIRCRAFT_TYPE',
+        'SERVICE TYPE': 'SERVICE_TYPE', 'PERIODE': 'PERIODE', 'AC REG': 'AC_REG',
+        'ASK (000) Y CLASS': 'ASK_000_Y_CLASS', 'ASK (000) C CLASS': 'ASK_000_C_CLASS',
+        'FUEL BURN (IN LITER)': 'FUEL_BURN_IN_LITER',
+        'COCKPIT CREW PERSON': 'COCKPIT_CREW_PERSON', 'CABIN CREW PERSON': 'CABIN_CREW_PERSON',
+        'ASK (000)': 'ASK_000'
+    }
+    df.rename(columns=rename_map, inplace=True)
+    
+    # 2. Filter & Grouping (Sesuai Notebook)
+    df1 = df[(df['BLOCK_HOURS'] > 0) & (df['ASK_000'] > 0)].copy()
+    
+    # Aggregation rules
+    agg_rules = {
+        target_col: "sum",
+        "BLOCK_HOURS": "sum", "FLIGHT_HOURS": "sum", "FLIGHT_KILOMETERS": "sum",
+        "ASK_000_Y_CLASS": "sum", "ASK_000_C_CLASS": "sum",
+        "LEASE_AIRCRAFT": "mean", "FUEL_BURN_IN_LITER": "sum", "NUMBER_OF_LANDING": "sum",
+        "AIRCRAFT_TYPE": "first", "SERVICE_TYPE": "first"
+    }
+    
+    df_group = df1.groupby(["AC_REG", "PERIODE"]).agg(agg_rules).reset_index()
+    
+    # 3. Filter Target > 0
+    data_train = df_group[df_group[target_col] > 0].copy()
+    
+    # 4. Split GroupShuffleSplit by AC_REG
+    X = data_train[feature_list + ['AC_REG']] 
+    y = data_train[target_col]
+    
+    splitter = GroupShuffleSplit(test_size=0.2, random_state=42)
+    train_idx, test_idx = next(splitter.split(X, y, groups=X["AC_REG"]))
+    
+    X_train, X_test = X.iloc[train_idx], X.iloc[test_idx]
+    y_train, y_test = y.iloc[train_idx], y.iloc[test_idx]
+    
+    # 5. LOG TRANSFORMATION (Important!)
+    y_train_log = np.log1p(y_train)
+    
+    # 6. Encoding
+    encoder = OneHotEncoder(handle_unknown='ignore', sparse_output=False)
+    encoder.fit(X_train[CATEGORICAL_COLS_PAYROLL])
+    
+    X_train_enc = pd.DataFrame(encoder.transform(X_train[CATEGORICAL_COLS_PAYROLL]), 
+                               columns=encoder.get_feature_names_out(CATEGORICAL_COLS_PAYROLL), 
+                               index=X_train.index)
+    X_test_enc = pd.DataFrame(encoder.transform(X_test[CATEGORICAL_COLS_PAYROLL]), 
+                              columns=encoder.get_feature_names_out(CATEGORICAL_COLS_PAYROLL), 
+                              index=X_test.index)
+    
+    # Numeric cols 
+    num_cols = list(set(feature_list) - set(CATEGORICAL_COLS_PAYROLL))
+    
+    X_train_final = pd.concat([X_train[num_cols], X_train_enc], axis=1)
+    X_test_final = pd.concat([X_test[num_cols], X_test_enc], axis=1)
+    
+    # 7. Train XGBoost
+    model = XGBRegressor(n_estimators=500, max_depth=6, learning_rate=0.01, 
+                         subsample=0.8, colsample_bytree=0.8, n_jobs=-1, objective="reg:squarederror")
+    model.fit(X_train_final, y_train_log)
+    
+    # 8. Evaluate (Inverse Log)
+    y_pred_log = model.predict(X_test_final)
+    y_pred_real = np.expm1(y_pred_log)
+    
+    mape = mean_absolute_percentage_error(y_test, y_pred_real)
+    rmse = np.sqrt(mean_squared_error(y_test, y_pred_real))
+    
+    # 9. Save Artifacts
+    artifacts = {
+        "model": model, "encoder": encoder,
+        "features": feature_list, "categorical": CATEGORICAL_COLS_PAYROLL,
+        "numeric": num_cols
+    }
+    os.makedirs(os.path.dirname(model_path), exist_ok=True)
+    joblib.dump(artifacts, model_path)
+    
+    return {
+        "mape": float(mape), "mape_percent": float(mape*100),
+        "rmse": float(rmse), "n_train": len(X_train), "n_test": len(X_test)
+    }
 
 # =====================================================================
 # FASTAPI ENDPOINTS
 # =====================================================================
 
 app = FastAPI(title="Aircraft Cost Prediction API", version="1.0")
-
 
 # =======================
 # PREDICT
@@ -1732,6 +1895,8 @@ def predict_vm(req: VMPredictRequest):
     preds = [float(p) for p in preds]
 
     return VMPredictResponse(predictions=preds)
+
+
 
 
 @app.post("/predict_fb", response_model=FBPredictResponse)
@@ -2073,61 +2238,65 @@ def predict_mr(req: MRPredictRequest):
     preds = model.predict(X_final)
     return MRPredictResponse(predictions=[float(p) for p in preds])
 
+# =============================
+# CREW FATA
+# =============================
 
-# CREW TRAVEL ENDPOINTS
-# =======================
-
-@app.post("/train_cockpit", response_model=CrewTrainResponse)
-def endpoint_train_cockpit():
+@app.post("/train_crew_fata", response_model=CrewFATATrainResponse)
+def train_crew_fata():
     try:
-        return CrewTrainResponse(**train_cockpit_model())
+        # Train Cockpit
+        metrics_cockpit = train_single_crew_model("COCKPIT_CREW_TRAVEL", CF_COCKPIT_MODEL_PATH)
+        global _cockpit_artifacts
+        _cockpit_artifacts = joblib.load(CF_COCKPIT_MODEL_PATH)
+
+        # Train Cabin
+        metrics_cabin = train_single_crew_model("CABIN_CREW_TRAVEL", CF_CABIN_MODEL_PATH)
+        global _cabin_artifacts
+        _cabin_artifacts = joblib.load(CF_CABIN_MODEL_PATH)
+
+        return {
+            "cockpit": metrics_cockpit,
+            "cabin": metrics_cabin
+        }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/train_cabin", response_model=CrewTrainResponse)
-def endpoint_train_cabin():
+@app.post("/predict_crew_fata", response_model=CrewFATAPredictResponse)
+def predict_crew_fata(req: CrewFATAPredictRequest):
     try:
-        return CrewTrainResponse(**train_cabin_model())
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        # Load artifacts
+        art_cockpit = load_crew_artifacts("cockpit")
+        art_cabin = load_crew_artifacts("cabin")
 
-def _predict_crew_generic(req: CrewPredictRequest, artifacts):
-    model = artifacts["model"]
-    encoder = artifacts["encoder"]
-    cat_cols = artifacts["categorical_cols"]
-    num_cols = artifacts["numeric_cols"]
-    
-    df = pd.DataFrame([r.dict() for r in req.records])
-    
-    df_cat = df[cat_cols]
-    df_num = df[num_cols]
-    
-    df_cat_enc = encoder.transform(df_cat)
-    encoded_cols = encoder.get_feature_names_out(cat_cols)
-    
-    X_final = pd.concat([
-        df_num.reset_index(drop=True),
-        pd.DataFrame(df_cat_enc, columns=encoded_cols)
-    ], axis=1)
-    
-    preds = model.predict(X_final)
-    return [float(p) for p in preds]
+        # Prepare Data
+        df = pd.DataFrame([r.dict() for r in req.records])
 
-@app.post("/predict_cockpit", response_model=CrewPredictResponse)
-def predict_cockpit(req: CrewPredictRequest):
-    try:
-        artifacts = load_cockpit_artifacts()
-        preds = _predict_crew_generic(req, artifacts)
-        return CrewPredictResponse(predictions=preds)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        # Preprocessing (Sama untuk kedua model karena fiturnya sama)
+        encoder = art_cockpit["encoder"] # Encoder bisa pakai salah satu asalkan fiturnya sama persis
+        cat_cols = art_cockpit["categorical_cols"]
+        num_cols = art_cockpit["numeric_cols"]
 
-@app.post("/predict_cabin", response_model=CrewPredictResponse)
-def predict_cabin(req: CrewPredictRequest):
-    try:
-        artifacts = load_cabin_artifacts()
-        preds = _predict_crew_generic(req, artifacts)
-        return CrewPredictResponse(predictions=preds)
+        df_cat = df[cat_cols]
+        df_num = df[num_cols]
+
+        df_cat_enc = encoder.transform(df_cat)
+        enc_cols = encoder.get_feature_names_out(cat_cols)
+
+        X_final = pd.concat([
+            df_num.reset_index(drop=True),
+            pd.DataFrame(df_cat_enc, columns=enc_cols)
+        ], axis=1)
+
+        # Predict
+        pred_cockpit = art_cockpit["model"].predict(X_final)
+        pred_cabin = art_cabin["model"].predict(X_final)
+
+        return {
+            "cockpit_predictions": [float(p) for p in pred_cockpit],
+            "cabin_predictions": [float(p) for p in pred_cabin]
+        }
+
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -2146,6 +2315,71 @@ def train_bofsc():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+
+
+
+
+
+#=============================================
+# PAYROLL
+#=============================================
+
+
+@app.post("/train_payroll", response_model=PayrollTrainResponse)
+def train_payroll():
+    try:
+        # Train Cockpit
+        m_cockpit = train_single_payroll_model("COCKPIT_CREW_PERSON", FEATURES_PAYROLL_COCKPIT, PAYROLL_COCKPIT_MODEL_PATH)
+        global _payroll_cockpit_artifacts
+        _payroll_cockpit_artifacts = joblib.load(PAYROLL_COCKPIT_MODEL_PATH)
+        
+        # Train Cabin
+        m_cabin = train_single_payroll_model("CABIN_CREW_PERSON", FEATURES_PAYROLL_CABIN, PAYROLL_CABIN_MODEL_PATH)
+        global _payroll_cabin_artifacts
+        _payroll_cabin_artifacts = joblib.load(PAYROLL_CABIN_MODEL_PATH)
+        
+        return {"cockpit": m_cockpit, "cabin": m_cabin}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/predict_payroll", response_model=PayrollPredictResponse)
+def predict_payroll(req: PayrollPredictRequest):
+    try:
+        # Load Models
+        art_cp = load_payroll_artifacts("cockpit")
+        art_cb = load_payroll_artifacts("cabin")
+        
+        df = pd.DataFrame([r.dict() for r in req.records])
+        
+        # PREDICT COCKPIT
+        enc_cp = art_cp["encoder"]
+        df_cat_cp = pd.DataFrame(enc_cp.transform(df[CATEGORICAL_COLS_PAYROLL]), 
+                                 columns=enc_cp.get_feature_names_out(CATEGORICAL_COLS_PAYROLL))
+        df_num_cp = df[art_cp["numeric"]].reset_index(drop=True)
+        X_cp = pd.concat([df_num_cp, df_cat_cp], axis=1)
+        
+        pred_log_cp = art_cp["model"].predict(X_cp)
+        pred_real_cp = np.expm1(pred_log_cp) 
+        
+        # PREDICT CABIN 
+        enc_cb = art_cb["encoder"]
+        df_cat_cb = pd.DataFrame(enc_cb.transform(df[CATEGORICAL_COLS_PAYROLL]), 
+                                 columns=enc_cb.get_feature_names_out(CATEGORICAL_COLS_PAYROLL))
+        df_num_cb = df[art_cb["numeric"]].reset_index(drop=True)
+        X_cb = pd.concat([df_num_cb, df_cat_cb], axis=1)
+        
+        pred_log_cb = art_cb["model"].predict(X_cb)
+        pred_real_cb = np.expm1(pred_log_cb) 
+        
+        return {
+            "cockpit_person_cost": [float(p) for p in pred_real_cp],
+            "cabin_person_cost": [float(p) for p in pred_real_cb]
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+# ==================
 
 if __name__ == "__main__":
 

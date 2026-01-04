@@ -32,6 +32,9 @@ API_VM_TRAIN   = f"{BASE_API}/train_vm"
 API_PC_PREDICT = f"{BASE_API}/predict_pc"
 API_PC_TRAIN   = f"{BASE_API}/train_pc"
 
+API_FC_PREDICT = f"{BASE_API}/predict_fc"
+API_FC_TRAIN = f"{BASE_API}/train_fc"
+
 API_RESERVATION_PREDICT = f"{BASE_API}/predict_reservation"
 API_RESERVATION_TRAIN   = f"{BASE_API}/train_reservation"
 
@@ -140,6 +143,30 @@ SELECTED_FEATURES_PC = [
 ]
 
 SELECTED_FEATURES_PC = SELECTED_FEATURES_PC + ["PASSENGER_COMMISSION"]
+
+# FREIGHT COMMISSION
+
+RENAME_MAP_FC = {
+            'CLF (%)': 'CLF_PERCENT', 
+            'CLF-GF (%)': 'CLF_GF_PERCENT', 
+            'LOAD FACTOR (%)': 'LOAD_FACTOR_PERCENT', 
+            'CARGO CARRIED': 'CARGO_CARRIED', 
+            'FREIGHT CARRIED': 'FREIGHT_CARRIED',
+            'SERVICE TYPE': 'SERVICE_TYPE', 
+            'SUB-SERVICE': 'SUB_SERVICE', 
+            'FLIGHT ROUTE': 'FLIGHT_ROUTE',
+            'FREIGHT COMMISSION': 'FREIGHT_COMMISSION'
+        }
+
+SELECTED_FEATURES_FC = ['CLF_PERCENT', 
+                        'CLF_GF_PERCENT', 
+                        'LOAD_FACTOR_PERCENT', 
+                        'CARGO_CARRIED', 
+                        'FREIGHT_CARRIED',
+                        'SERVICE_TYPE', 
+                        'SUB_SERVICE', 
+                        'FLIGHT_ROUTE'
+]
 
 
 # RESERVATION
@@ -273,9 +300,10 @@ st.sidebar.title("🧭 Navigation")
 
 model_menu = st.sidebar.radio(
     "📦 Model",
-    ["Fuel Burn", "Variable Maintenance", "Passenger Commission", "Reservation",
-     "On Board Service and Catering","Maintenance Reserve", "Crew FATA",
-     "Branch Office and Fixed Station Cost"],
+    ["Fuel Burn", "Variable Maintenance", "Passenger Commission", 
+     "Freight Commission", "Reservation", 
+     "On Board Service and Catering","Maintenance Reserve", 
+     "Crew FATA", "Branch Office and Fixed Station Cost"],
 )
 
 action_menu = st.sidebar.radio(
@@ -767,6 +795,144 @@ elif model_menu == "Passenger Commission":
             except Exception as e:
                 st.error(f"Gagal menghubungi API: {e}")
 
+# ==================
+# FREIGHT COMMISSION
+# ==================
+
+elif model_menu == "Freight Commission":
+
+    st.title("✈️ Freight Commission Predictor (XGBoost + API)")
+
+    if action_menu == "Predict":
+        st.header("📈 Prediksi Freight Commission ($)")
+        
+        sample_row = df_sample.copy().rename(columns=RENAME_MAP_FC).iloc[0]
+
+        df_filter_res = df_filter1.copy().rename(columns=RENAME_MAP_FC)
+        
+        actual = sample_row["FREIGHT_COMMISSION"]
+
+        st.caption("Default value diisi dari salah satu contoh flight di dataset.")
+
+        # =====================
+        # Input fitur
+        # =====================
+        with st.form("predict_form"):
+            col_cat1, col_cat2 = st.columns(2)
+            col_cat3, col_cat4 = st.columns(2)
+
+            stype_options = sorted(df_filter_res["SERVICE_TYPE"].dropna().unique())
+            froute_options = sorted(df_filter_res["FLIGHT_ROUTE"].dropna().unique())
+            subservice_options = sorted(df_filter_res["SUB_SERVICE"].dropna().unique())
+            
+
+            def default_index(options, value):
+                try:
+                    return list(options).index(value)
+                except ValueError:
+                    return 0
+                
+            SERVICE_TYPE = col_cat1.selectbox(
+                "SERVICE_TYPE",
+                stype_options,
+                index=default_index(stype_options, sample_row["SERVICE_TYPE"])
+            )
+
+            SUB_SERVICE = col_cat2.selectbox(
+                "SUB_SERVICE",
+                subservice_options,
+                index=default_index(subservice_options, sample_row["SUB_SERVICE"])
+            )
+
+            FLIGHT_ROUTE = col_cat3.selectbox(
+                "FLIGHT_ROUTE",
+                froute_options,
+                index=default_index(froute_options, sample_row["FLIGHT_ROUTE"])
+            )
+
+            st.markdown("---")
+            st.subheader("Fitur Numerik")
+
+            num_cols1, num_cols2, num_cols3 = st.columns(3)
+
+            CLF_PERCENT = num_cols1.number_input(
+                "CLF_PERCENT", value=float(sample_row["CLF_PERCENT"])
+            )
+
+            CLF_GF_PERCENT = num_cols2.number_input(
+                "CLF_GF_PERCENT", value=float(sample_row["CLF_GF_PERCENT"])
+            )
+
+            LOAD_FACTOR_PERCENT = num_cols3.number_input(
+                "LOAD_FACTOR_PERCENT", value=float(sample_row["LOAD_FACTOR_PERCENT"])
+            )
+
+            CARGO_CARRIED = num_cols1.number_input(
+                "CARGO_CARRIED", value=float(sample_row["CARGO_CARRIED"])
+            )
+
+            FREIGHT_CARRIED = num_cols2.number_input(
+                "FREIGHT_CARRIED", value=float(sample_row["FREIGHT_CARRIED"])
+            )
+
+            submitted = st.form_submit_button("🔮 Prediksi Freight Commission")
+
+        if submitted:
+            record = {
+                "CLF_PERCENT": CLF_PERCENT,
+                "CLF_GF_PERCENT": CLF_GF_PERCENT,
+                "LOAD_FACTOR_PERCENT": LOAD_FACTOR_PERCENT,
+                "CARGO_CARRIED": CARGO_CARRIED,
+                "FREIGHT_CARRIED": FREIGHT_CARRIED,
+                "SERVICE_TYPE": SERVICE_TYPE,
+                "SUB_SERVICE": SUB_SERVICE,
+                "FLIGHT_ROUTE": FLIGHT_ROUTE
+            }
+
+            try:
+                with st.spinner("Meminta prediksi ke API..."):
+                    resp = requests.post(
+                        API_FC_PREDICT, json={"records": [record]}
+                    )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    pred = data["predictions"][0]
+                    st.success("Prediksi berhasil ✅")
+                    st.metric("Perkiraan Freight Commission", f"{pred:,.2f}")
+                    st.json(data)
+                    st.text( f"{actual:,.2f}")
+                else:
+                    st.error(f"Error {resp.status_code}: {resp.text}")
+            except Exception as e:
+                st.error(f"Gagal menghubungi API: {e}")
+
+    elif action_menu == "Train":
+        st.header("🔁 Latih / Retrain Model Freight Commision")
+        st.write("""
+            Endpoint ini akan membaca dataset yang sudah ditentukan di API (`EXCEL_PATH`),
+            melakukan preprocessing, training ulang XGBoost, kemudian menyimpan model baru.
+        """)
+
+        st.warning("""
+        ⚠️ Perhatian:
+        - Proses training bisa memakan waktu (tergantung size dataset).
+        - Model lama akan di-*overwrite* oleh model baru.
+        """)
+
+        if st.button("Train sekarang"):
+            try:
+                with st.spinner("Training model di server API..."):
+                    resp = requests.post(API_FC_TRAIN)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    st.success("Training selesai ✅")
+                    st.json(data)
+                    st.metric("MAPE (%)", f"{data['mape_percent']:.2f}")
+                    st.metric("RMSE", f"{data['rmse']:.2f}")
+                else:
+                    st.error(f"Error {resp.status_code}: {resp.text}")
+            except Exception as e:
+                st.error(f"Gagal menghubungi API: {e}")
 
 # ============
 # RESERVATION
@@ -929,7 +1095,7 @@ elif model_menu == "Reservation":
                     st.success("Training selesai ✅")
                     st.json(data)
                     st.metric("MAPE (%)", f"{data['mape_percent']:.2f}")
-                    st.metric("RMSE (liter)", f"{data['rmse']:.2f}")
+                    st.metric("RMSE", f"{data['rmse']:.2f}")
                 else:
                     st.error(f"Error {resp.status_code}: {resp.text}")
             except Exception as e:
@@ -1250,10 +1416,10 @@ elif model_menu == "On Board Service and Catering":
                     st.success("Training selesai ✅")
                     st.json(data)
                     st.metric("MAPE On Board Service (%)", f"{data['obs']['mape_percent']:.2f}")
-                    st.metric("RMSE On Board Service (liter)", f"{data['obs']['rmse']:.2f}")
+                    st.metric("RMSE On Board Service", f"{data['obs']['rmse']:.2f}")
 
                     st.metric("MAPE Catering (%)", f"{data['catering']['mape_percent']:.2f}")
-                    st.metric("RMSE Catering (liter)", f"{data['catering']['rmse']:.2f}")
+                    st.metric("RMSE Catering", f"{data['catering']['rmse']:.2f}")
                 else:
                     st.error(f"Error {resp.status_code}: {resp.text}")
             except Exception as e:

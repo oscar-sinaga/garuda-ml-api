@@ -27,6 +27,7 @@ SHEET_NAME = "Raw"
 VM_MODEL_PATH = "models/vm_xgb.joblib"
 FB_MODEL_PATH = "models/fuel_burn_xgb.joblib"
 PC_MODEL_PATH = "models/passenger_commission_lgbm.joblib"
+FC_MODEL_PATH = "models/freight_commission_xgb.joblib"
 R_MODEL_PATH = "models/reservation_xgb.joblib"
 OBS_MODEL_PATH = "models/on_board_service_xgb.joblib"
 C_MODEL_PATH = "models/catering_xgb.joblib"
@@ -104,6 +105,24 @@ SELECTED_FEATURES_PC = [
 ]
 
 TARGET_COL_PC = "PASSENGER_COMMISSION"
+
+# FREIGHT COMMISSION FEATURES
+
+SELECTED_FEATURES_FC = ['CLF_PERCENT', 
+                        'CLF_GF_PERCENT', 
+                        'LOAD_FACTOR_PERCENT', 
+                        'CARGO_CARRIED', 
+                        'FREIGHT_CARRIED',
+                        'SERVICE_TYPE', 
+                        'SUB_SERVICE', 
+                        'FLIGHT_ROUTE'
+]
+
+TARGET_COL_FC = "FREIGHT_COMMISSION"
+
+CATEGORICAL_COLS_FC = ['SERVICE_TYPE', 'SUB_SERVICE', 'FLIGHT_ROUTE']
+
+NUMERICAL_COLS_FC = list(set(SELECTED_FEATURES_FC) - set(CATEGORICAL_COLS_FC))
 
 # RESERVATION features
 SELECTED_FEATURES_RESERVATION = ['PASSENGER_CARRIED', 
@@ -345,6 +364,31 @@ class PC_TrainResponse(BaseModel):
     n_train: int
     n_test: int
 
+# FREIGHT COMMISSION
+class FCRecord(BaseModel):
+    CLF_PERCENT : float
+    CLF_GF_PERCENT : float
+    LOAD_FACTOR_PERCENT : float
+    CARGO_CARRIED: float
+    FREIGHT_CARRIED: float
+    SERVICE_TYPE: str
+    SUB_SERVICE: str
+    FLIGHT_ROUTE: str
+
+class FCPredictRequest(BaseModel):
+    records: List[FCRecord]
+
+class FCPredictResponse(BaseModel):
+    predictions: List[float]
+
+class FCTrainResponse(BaseModel):
+    mape: float          # dalam desimal, misal 0.05 = 5%
+    mape_percent: float  # dalam persen
+    rmse: float
+    n_train: int
+    n_test: int                
+
+# Reservation
 class ReservationRecord(BaseModel):
     PASSENGER_CARRIED : float
     PASSENGER_CARRIED_Y_CLASS : float
@@ -587,6 +631,8 @@ _fb_artifacts = None
 
 _pc_model_artifacts = None
 
+_fc_model_artifacts = None
+
 _reservation_model_artifacts = None
 
 _obs_model_artifacts = None
@@ -649,6 +695,21 @@ def load_pc_artifacts():
 
     _pc_model_artifacts = joblib.load(PC_MODEL_PATH)
     return _pc_model_artifacts
+
+def load_fc_artifacts():
+    """Load model & encoder dari disk jika belum ada di cache."""
+    global _fc_model_artifacts
+    if _fc_model_artifacts is not None:
+        return _fc_model_artifacts
+
+    if not os.path.exists(FC_MODEL_PATH):
+        raise RuntimeError(
+            f"Model belum dilatih. Jalankan endpoint /train dulu. "
+            f"File tidak ditemukan: {FC_MODEL_PATH}"
+        )
+
+    _fc_model_artifacts = joblib.load(FC_MODEL_PATH)
+    return _fc_model_artifacts
 
 def load_reservation_artifacts():
     """Load model & encoder dari disk jika belum ada di cache."""
@@ -1116,6 +1177,96 @@ def train_pc_model():
 
     _pc_model_artifacts = artifacts  # cache di memori
 
+    return {
+        "mape": float(mape),
+        "mape_percent": float(mape * 100.0),
+        "rmse": float(rmse),
+        "n_train": int(len(X_train)),
+        "n_test": int(len(X_test)),
+    }
+
+def train_fc_model():
+    """Train, simpan artifacts, dan return metrics."""
+    global _fc_model_artifacts
+
+    def load_training_data() -> pd.DataFrame:
+        if not os.path.exists(EXCEL_PATH):
+            raise RuntimeError(f"File Excel tidak ditemukan: {EXCEL_PATH}")
+
+        df = pd.read_excel(EXCEL_PATH, sheet_name=SHEET_NAME, skiprows=1)
+        df = df.iloc[:, 1:]  # buang kolom index pertama
+
+        # REMOVE ZEROES
+        df1 = df[
+        (df['FREIGHT COMMISSION']>=10) & (df['FREIGHT CARRIED']>0) & (df['CARGO CARRIED']>0) &
+        (df['FREIGHT COMMISSION']<=1000) &
+        (df['BLOCK HOURS']>0) & (df['FLIGHT HOURS']>0) & (df['ASK (000)']>0)].copy()
+
+        # Mapping nama kolom Excel -> nama Pythonic
+        RENAME_MAP = {
+            'CLF (%)': 'CLF_PERCENT', 
+            'CLF-GF (%)': 'CLF_GF_PERCENT', 
+            'LOAD FACTOR (%)': 'LOAD_FACTOR_PERCENT', 
+            'CARGO CARRIED': 'CARGO_CARRIED', 
+            'FREIGHT CARRIED': 'FREIGHT_CARRIED',
+            'SERVICE TYPE': 'SERVICE_TYPE', 
+            'SUB-SERVICE': 'SUB_SERVICE', 
+            'FLIGHT ROUTE': 'FLIGHT_ROUTE',
+            'FREIGHT COMMISSION': 'FREIGHT_COMMISSION'
+        }
+
+        df1 = df1.rename(columns=RENAME_MAP)
+        return df1
+    
+    df1 = load_training_data()
+    
+    X = df1[SELECTED_FEATURES_FC].copy()
+    y = df1[TARGET_COL_FC].copy()
+    
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=1
+    )
+    
+
+    encoder = OneHotEncoder(handle_unknown='ignore', sparse_output=False)
+    encoder.fit(X_train[CATEGORICAL_COLS_FC])
+
+    X_train_encoded = encoder.transform(X_train[CATEGORICAL_COLS_FC])
+    X_test_encoded = encoder.transform(X_test[CATEGORICAL_COLS_FC])
+
+    encoded_cols = encoder.get_feature_names_out(CATEGORICAL_COLS_FC)
+    
+    X_train_encoded = pd.DataFrame(X_train_encoded, columns=encoded_cols, index=X_train.index)
+    X_test_encoded = pd.DataFrame(X_test_encoded, columns=encoded_cols, index=X_test.index)
+    
+    X_train_final = pd.concat([X_train[NUMERICAL_COLS_FC], X_train_encoded], axis=1)
+    X_test_final = pd.concat([X_test[NUMERICAL_COLS_FC], X_test_encoded], axis=1)
+
+    model = XGBRegressor(n_estimators=1000, 
+                         learning_rate=0.5, 
+                         objective="reg:squarederror")
+    
+    model.fit(X_train_final, y_train)
+    
+    y_pred = model.predict(X_test_final)
+
+    mape = mean_absolute_percentage_error(y_test, y_pred)
+    rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+
+    artifacts = {
+        "model": model,
+        "encoder": encoder,
+        "categorical_cols": CATEGORICAL_COLS_FC,
+        "numeric_cols": NUMERICAL_COLS_FC,
+        "selected_features": SELECTED_FEATURES_FC,
+    }
+
+    os.makedirs(os.path.dirname(FC_MODEL_PATH), exist_ok=True)
+     
+    joblib.dump(artifacts, FC_MODEL_PATH)
+     
+    _fc_model_artifacts = artifacts  # cache di memori
+    
     return {
         "mape": float(mape),
         "mape_percent": float(mape * 100.0),
@@ -1961,6 +2112,44 @@ def predict_pc(req: PCPredictRequest):
 
     return PC_PredictResponse(predictions=preds)
 
+@app.post("/predict_fc", response_model=FCPredictResponse)
+def predict_fc(req: FCPredictRequest):
+    try:
+        artifacts = load_fc_artifacts()
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
+    model = artifacts["model"]
+    encoder = artifacts["encoder"]
+    categorical_cols = artifacts["categorical_cols"]
+    numeric_cols = artifacts["numeric_cols"]
+
+     # Pydantic -> DataFrame
+    df = pd.DataFrame([r.dict() for r in req.records])
+
+    # Pastikan semua fitur ada
+    missing = [c for c in SELECTED_FEATURES_FC if c not in df.columns]
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Fitur berikut hilang di request: {missing}",
+        )
+    df_cat = df[categorical_cols]
+    df_num = df[numeric_cols]
+
+    df_cat_enc = encoder.transform(df_cat)
+    enc_cols = encoder.get_feature_names_out(categorical_cols)
+
+    df_cat_enc_df = pd.DataFrame(df_cat_enc, columns=enc_cols, index=df.index)
+
+    X_final = pd.concat([df_num, df_cat_enc_df], axis=1)
+
+
+    preds = model.predict(X_final)
+    preds = [float(p) for p in preds]
+
+    return FCPredictResponse(predictions= preds)
+
 
 @app.post("/predict_reservation", response_model=ReservationPredictResponse)
 def predict_reservation(req: ReservationPredictRequest):
@@ -2163,6 +2352,15 @@ def train_pc():
     try:
         metrics = train_pc_model()
         return PC_TrainResponse(**metrics)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    
+@app.post("/train_fc", response_model=FCTrainResponse)
+def train_fc():
+    """Latih ulang model dari file Excel."""
+    try:
+        metrics = train_fc_model()
+        return FCTrainResponse(**metrics)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

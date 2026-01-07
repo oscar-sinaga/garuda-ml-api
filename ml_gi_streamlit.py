@@ -56,11 +56,14 @@ API_BOFSC_PREDICT = f"{BASE_API}/predict_bofsc"
 API_PAYROLL_PREDICT = f"{BASE_API}/predict_payroll"
 API_PAYROLL_TRAIN   = f"{BASE_API}/train_payroll"
 
+API_AFGH_PREDICT = f"{BASE_API}/predict_afgh"
+API_AFGH_TRAIN   = f"{BASE_API}/train_afgh"
+
 # ==================================================
 # KONFIGURASI FILE DATA (UNTUK DROPDOWN DEFAULT)
 # ==================================================
 # EXCEL_PATH = "05. Database RP May 2025 - AC REGISTER.xlsx"
-EXCEL_PATH = "C:/Users/hp/Downloads/ACOPY/05. Database RP May 2025 - AC REGISTER.xlsx"
+EXCEL_PATH = "05. Database RP May 2025 - AC REGISTER.xlsx"
 SHEET_NAME = "Raw"
 
 # =====================
@@ -323,6 +326,18 @@ RENAME_MAP_PAYROLL = {
     'CABIN CREW PERSON': 'CABIN_CREW_PERSON'
 }
 
+
+# Airport fees and ground handling
+RENAME_MAP_AFGH = {
+    'BLOCK HOURS': 'BLOCK_HOURS', 
+    'ATK PASSENGER (000)': 'ATK_PASSENGER_000',
+    'ATK (000)': 'ATK_000',
+    'AIRCRAFT TYPE GROUPING': 'AIRCRAFT_TYPE_GROUPING',
+    'FLIGHT ROUTE': 'FLIGHT_ROUTE',
+    'AC REG': 'AC_REG',
+    'AIRCRAFT TYPE': 'AIRCRAFT_TYPE'
+}
+
 # ==================================================
 # PAGE CONFIG
 # ==================================================
@@ -350,7 +365,8 @@ model_menu = st.sidebar.radio(
         "Maintenance Reserve", 
         "Crew FATA",
         "Branch Office and Fixed Station Cost", 
-        "Cabin & Crew Payroll"             
+        "Cabin & Crew Payroll",
+        "Airport fees and ground handling"             
     ],
 )
 
@@ -1933,3 +1949,190 @@ elif model_menu == "Cabin & Crew Payroll":
                     st.error(f"Training Failed: {resp.text}")
             except Exception as e:
                 st.error(f"Error: {e}")
+
+
+
+# ====================================
+# Airport fees and ground handling COST
+# (LANDING, HANDLING, AIRCRAFT TRAFFIC CONTROL)
+# ====================================
+
+# Administration BO
+elif model_menu == "Airport fees and ground handling":
+    st.title("✈️ Airport fees and ground handling Predictor (XGBoost + API)")
+
+    if action_menu == "Predict":
+        st.header("📈 Prediksi Airport fees and ground handling (LANDING, HANDLING, AIR TRAFFIC CONTROL) ($)")
+        
+        sample_row = df_sample.copy().rename(columns=RENAME_MAP_AFGH).iloc[0]
+
+        df_filter_afgh = df_filter1.copy().rename(columns=RENAME_MAP_AFGH)
+        
+        # actual_landing = sample_row["LANDING"]
+        # actual_handling = sample_row["HANDLING"]
+        # actual_atc = sample_row["AIRCRAFT_TRAFFIC_CONTROL"]
+        
+        st.caption("Default value diisi dari salah satu contoh flight di dataset.")
+
+        # =====================
+        # Input fitur
+        # =====================
+
+        with st.form("predict_form"):
+            st.markdown("#### Categorical Features")
+            num_cols1, num_cols2, num_cols3 = st.columns(3)
+
+            # Categorical
+            aircraft_type_grouping_options = sorted(df_filter_afgh["AIRCRAFT_TYPE_GROUPING"].dropna().unique())
+            flight_route_options = sorted(df_filter_afgh["FLIGHT_ROUTE"].dropna().unique())
+            roundtriproute_options = sorted(df_filter_afgh["ROUNDTRIPROUTE"].dropna().unique())
+            ac_reg_options = sorted(df_filter_afgh["AC_REG"].dropna().unique())
+            aircraft_type_options = sorted(df_filter_afgh["AIRCRAFT_TYPE"].dropna().unique())
+            
+            def default_index(options, value):
+                try:
+                    return list(options).index(value)
+                except ValueError:
+                    return 0
+
+            AIRCRAFT_TYPE_GROUPING = num_cols2.selectbox(
+                "AIRCRAFT_TYPE_GROUPING",
+                aircraft_type_grouping_options,
+                index=default_index(aircraft_type_grouping_options, sample_row["AIRCRAFT_TYPE_GROUPING"]),
+            )
+            ROUNDTRIPROUTE = num_cols3.selectbox(
+                "ROUNDTRIPROUTE",
+                roundtriproute_options,
+                index=default_index(roundtriproute_options, sample_row["ROUNDTRIPROUTE"]),
+            )
+            FLIGHT_ROUTE = num_cols3.selectbox(
+                "FLIGHT_ROUTE",
+                flight_route_options,
+                index=default_index(flight_route_options, sample_row["FLIGHT_ROUTE"]),
+            )
+
+            AC_REG = num_cols1.selectbox(
+                "AC_REG",
+                ac_reg_options,
+                index=default_index(ac_reg_options, sample_row["AC_REG"]),
+            )
+
+            AIRCRAFT_TYPE = num_cols2.selectbox(
+                "AIRCRAFT_TYPE",
+                aircraft_type_options,
+                index=default_index(aircraft_type_options, sample_row["AIRCRAFT_TYPE"]),
+            )
+
+        
+            # Numeric
+            st.markdown("---")
+            st.markdown("#### Numerical Features")
+            num_cols1, num_cols2, num_cols3 = st.columns(3)
+
+            ATK_PASSENGER_000 = num_cols3.number_input(
+                "ATK_PASSENGER_000", value=float(sample_row["ATK_PASSENGER_000"])
+            )
+
+            ATK_000 = num_cols1.number_input(
+                "ATK_000", value=float(sample_row["ATK_000"])
+            )
+
+            BLOCK_HOURS = num_cols2.number_input(
+                "BLOCK_HOURS", value=float(sample_row["BLOCK_HOURS"])
+            )
+
+
+
+            submitted = st.form_submit_button("🔮 Prediksi AIRPORT FEES AND GROUND HANDLING")
+
+        if submitted:
+            record_landing = {
+                'ATK_PASSENGER_000': ATK_PASSENGER_000,
+                'ATK_000': ATK_000,
+                'BLOCK_HOURS': BLOCK_HOURS,
+                'AIRCRAFT_TYPE_GROUPING': AIRCRAFT_TYPE_GROUPING,
+                'FLIGHT_ROUTE': FLIGHT_ROUTE,
+                "AC_REG": AC_REG,
+                'AIRCRAFT_TYPE': AIRCRAFT_TYPE,
+                }
+            
+            record_handling = {
+                'ATK_PASSENGER_000': ATK_PASSENGER_000,
+                'ATK_000': ATK_000,
+                'BLOCK_HOURS': BLOCK_HOURS,
+                'FLIGHT_ROUTE': FLIGHT_ROUTE,
+                'AC_REG': AC_REG
+            }
+
+            record_atc = {
+                'ATK_PASSENGER_000': ATK_PASSENGER_000,
+                'ATK_000': ATK_000,
+                'BLOCK_HOURS': BLOCK_HOURS,
+                'AIRCRAFT_TYPE_GROUPING': AIRCRAFT_TYPE_GROUPING,
+                'FLIGHT_ROUTE': FLIGHT_ROUTE,
+                'ROUNDTRIPROUTE': ROUNDTRIPROUTE,
+                'AC_REG': AC_REG,
+                'AIRCRAFT_TYPE': AIRCRAFT_TYPE
+            }
+
+            try:
+                with st.spinner("Meminta prediksi ke API..."):
+                    resp = requests.post(
+                        API_AFGH_PREDICT, 
+                        json={
+                                "landing": {"records": [record_landing]},
+                                "handling": {"records": [record_handling]},
+                                "atc": {"records": [record_atc]},
+                            }
+                    )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    pred_landing = data["landing"]["predictions"][0]
+                    pred_handling = data["handling"]["predictions"][0]
+                    pred_atc = data["atc"]["predictions"][0]
+                    st.success("Prediksi berhasil ✅")
+                    st.metric("Perkiraan biaya Landing ($)", f"{pred_landing:,.2f}")
+                    st.metric("Perkiraan biaya Handling ($)", f"{pred_handling:,.2f}")
+                    st.metric("Perkiraan biaya ATC ($)", f"{pred_atc:,.2f}")
+                    st.json(data)
+                    # st.text( f"{actual_landing:,.2f}")
+                    # st.text( f"{actual_handling:,.2f}")
+                    # st.text( f"{actual_atc:,.2f}")
+                else:
+                    st.error(f"Error {resp.status_code}: {resp.text}")
+            except Exception as e:
+                st.error(f"Gagal menghubungi API: {e}")
+
+    elif action_menu == "Train":
+        st.write("""
+            Endpoint ini akan membaca dataset yang sudah ditentukan di API (`EXCEL_PATH`),
+            melakukan preprocessing, training ulang XGBoost, kemudian menyimpan model baru.
+        """)
+
+        st.warning("""
+        ⚠️ Perhatian:
+        - Proses training bisa memakan waktu (tergantung size dataset).
+        - Model lama akan di-*overwrite* oleh model baru.
+        """)
+
+        if st.button("Train sekarang"):
+            try:
+                with st.spinner("Training model di server API..."):
+                    resp = requests.post(API_AFGH_TRAIN)
+                if resp.status_code == 200:
+                    data = resp.json()
+                    st.success("Training selesai ✅")
+                    st.json(data)
+                    st.metric("MAPE Landing (%)", f"{data['landing']['mape_percent']:.2f}")
+                    st.metric("RMSE Landing", f"{data['landing']['rmse']:.2f}")
+
+                    st.metric("MAPE Handling (%)", f"{data['handling']['mape_percent']:.2f}")
+                    st.metric("RMSE Handling", f"{data['handling']['rmse']:.2f}")
+
+                    st.metric("MAPE ATC (%)", f"{data['atc']['mape_percent']:.2f}")
+                    st.metric("RMSE ATC", f"{data['atc']['rmse']:.2f}")
+
+                else:
+                    st.error(f"Error {resp.status_code}: {resp.text}")
+            except Exception as e:
+                st.error(f"Gagal menghubungi API: {e}")

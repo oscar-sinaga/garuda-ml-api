@@ -12,6 +12,7 @@ from xgboost import XGBRegressor
 from lightgbm import LGBMRegressor
 from typing import Union
 from fastapi.middleware.cors import CORSMiddleware
+import traceback
 
 
 # =====================================================================
@@ -20,7 +21,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 # Sheet Excel 
 # EXCEL_PATH = "05. Database RP May 2025 - AC REGISTER.xlsx"
-EXCEL_PATH = "C:/Users/hp/Downloads/ACOPY/05. Database RP May 2025 - AC REGISTER.xlsx"
+EXCEL_PATH = "05. Database RP May 2025 - AC REGISTER.xlsx"
 SHEET_NAME = "Raw"
 
 # Model Path
@@ -38,6 +39,12 @@ STATION_MODEL_PATH = "models/station_xgb.joblib"
 ADMIN_BO_MODEL_PATH = "models/admin_bo_xgb.joblib"
 PAYROLL_COCKPIT_MODEL_PATH = "models/payroll_cockpit_xgb.joblib"
 PAYROLL_CABIN_MODEL_PATH = "models/payroll_cabin_xgb.joblib"
+LANDING_MODEL_PATH = "models/landing_xgb.joblib"
+HANDLING_MODEL_PATH = "models/handling_xgb.joblib"
+ATC_MODEL_PATH = "models/atc_xgb.joblib"
+
+
+
 
 
 # ========================== SELECTED FEATURES ==========================
@@ -263,6 +270,24 @@ FEATURES_PAYROLL_CABIN = [
 ]
 
 CATEGORICAL_COLS_PAYROLL = ['AIRCRAFT_TYPE', 'SERVICE_TYPE', 'PERIODE']
+
+# AIRPORT FEES AND GROUND HANDLING FEATURE
+
+## LANDING
+NUMERICAL_COLS_LANDING = ['ATK_PASSENGER_000', 'ATK_000', 'BLOCK_HOURS']
+CATEGORICAL_COLS_LANDING = ['AIRCRAFT_TYPE_GROUPING', 'FLIGHT_ROUTE', 'AC_REG', 'AIRCRAFT_TYPE']
+
+SELECTED_FEATURES_LANDING = NUMERICAL_COLS_LANDING + CATEGORICAL_COLS_LANDING
+
+## HANDLING
+NUMERICAL_COLS_HANDLING = ['ATK_PASSENGER_000', 'ATK_000', 'BLOCK_HOURS']
+CATEGORICAL_COLS_HANDLING = ['FLIGHT_ROUTE', 'AC_REG']
+SELECTED_FEATURES_HANDLING = NUMERICAL_COLS_HANDLING + CATEGORICAL_COLS_HANDLING
+
+## AIR TRAFFIC CONTROL
+NUMERICAL_COLS_ATC = ['ATK_PASSENGER_000', 'ATK_000', 'BLOCK_HOURS']
+CATEGORICAL_COLS_ATC = ['AIRCRAFT_TYPE_GROUPING', 'FLIGHT_ROUTE', 'ROUNDTRIPROUTE', 'AC_REG', 'AIRCRAFT_TYPE']
+SELECTED_FEATURES_ATC = NUMERICAL_COLS_ATC + CATEGORICAL_COLS_ATC
 
 # =====================================================================
 # MODEL REQUEST FORMAT
@@ -620,6 +645,94 @@ class PayrollTrainResponse(BaseModel):
     cockpit: SingleTrainMetric
     cabin: SingleTrainMetric
 
+
+# Airport fees and ground handling
+
+## LANDING
+class LandingRecord(BaseModel):
+    ATK_PASSENGER_000: float
+    ATK_000: float
+    BLOCK_HOURS: float
+    AIRCRAFT_TYPE_GROUPING: str
+    FLIGHT_ROUTE: str
+    AC_REG: str
+    AIRCRAFT_TYPE: str
+
+class LandingPredictRequest(BaseModel):
+    records: List[LandingRecord]
+
+class LandingPredictResponse(BaseModel):
+    predictions: List[float]
+
+class LandingTrainResponse(BaseModel):
+    mape: float
+    mape_percent: float
+    rmse: float
+    n_train: int
+    n_test: int
+
+# HANDLING
+class HandlingRecord(BaseModel):
+    ATK_PASSENGER_000: float
+    ATK_000: float
+    BLOCK_HOURS: float
+    FLIGHT_ROUTE: str
+    AC_REG: str
+
+class HandlingPredictRequest(BaseModel):
+    records: List[HandlingRecord]
+
+class HandlingPredictResponse(BaseModel):
+    predictions: List[float]
+
+class HandlingTrainResponse(BaseModel):
+    mape: float
+    mape_percent: float
+    rmse: float
+    n_train: int
+    n_test: int
+
+# ATC
+class ATCRecord(BaseModel):
+    ATK_PASSENGER_000: float
+    ATK_000: float
+    BLOCK_HOURS: float
+    AIRCRAFT_TYPE_GROUPING: str
+    FLIGHT_ROUTE: str
+    ROUNDTRIPROUTE: str
+    AC_REG: str
+    AIRCRAFT_TYPE: str
+
+class ATCPredictRequest(BaseModel):
+    records: List[ATCRecord]
+
+class ATCPredictResponse(BaseModel):
+    predictions: List[float]
+
+class ATCTrainResponse(BaseModel):
+    mape: float
+    mape_percent: float
+    rmse: float
+    n_train: int
+    n_test: int
+
+
+# Combined (handing, landing, atc)
+class AFGHPredictRequest(BaseModel):
+    landing: LandingPredictRequest
+    handling: HandlingPredictRequest
+    atc: ATCPredictRequest
+
+class AFGHPredictResponse(BaseModel):
+    landing: LandingPredictResponse
+    handling: HandlingPredictResponse
+    atc: ATCPredictResponse
+
+class AFGHTrainResponse(BaseModel):
+    landing: LandingTrainResponse
+    handling: HandlingTrainResponse
+    atc: ATCTrainResponse   
+
 # =====================================================================
 # GLOBAL CACHE
 # =====================================================================
@@ -648,6 +761,10 @@ _station_model_artifacts = None
 
 _payroll_cockpit_artifacts = None
 _payroll_cabin_artifacts = None
+
+_landing_model_artifacts = None
+_handling_model_artifacts = None
+_atc_model_artifacts = None
 
 # =====================================================================
 # LOAD ARTIFACTS
@@ -851,6 +968,41 @@ def load_payroll_artifacts(role="cockpit"):
     else: _payroll_cabin_artifacts = artifacts
     
     return artifacts
+
+#========================
+def load_landing_artifacts():
+    global _landing_model_artifacts
+    if _landing_model_artifacts is not None:
+        return _landing_model_artifacts
+
+    if not os.path.exists(LANDING_MODEL_PATH):
+        raise RuntimeError(f"Model Landing belum dilatih. Jalankan endpoint /train_landing dulu.")
+
+    _landing_model_artifacts = joblib.load(LANDING_MODEL_PATH)
+    return _landing_model_artifacts
+
+def load_handling_artifacts():
+    global _handling_model_artifacts
+    if _handling_model_artifacts is not None:
+        return _handling_model_artifacts
+
+    if not os.path.exists(HANDLING_MODEL_PATH):
+        raise RuntimeError(f"Model Handling belum dilatih. Jalankan endpoint /train_handling dulu.")
+
+    _handling_model_artifacts = joblib.load(HANDLING_MODEL_PATH)
+    return _handling_model_artifacts
+
+def load_atc_artifacts():
+    global _atc_model_artifacts
+    if _atc_model_artifacts is not None:
+        return _atc_model_artifacts
+
+    if not os.path.exists(ATC_MODEL_PATH):
+        raise RuntimeError(f"Model ATC belum dilatih. Jalankan endpoint /train_atc dulu.")
+
+    _atc_model_artifacts = joblib.load(ATC_MODEL_PATH)
+    return _atc_model_artifacts
+
 #========================
 
 # =====================================================================
@@ -2001,6 +2153,266 @@ def train_single_payroll_model(target_col, feature_list, model_path):
         "rmse": float(rmse), "n_train": len(X_train), "n_test": len(X_test)
     }
 
+
+# Airport Fees and ground handling 
+
+## Landing
+def train_landing_model():
+    """Train, simpan artifacts, dan return metrics."""
+    global _landing_model_artifacts
+     
+    def load_training_data() -> pd.DataFrame:
+        if not os.path.exists(EXCEL_PATH):
+            raise RuntimeError(f"File Excel tidak ditemukan: {EXCEL_PATH}")
+
+        df = pd.read_excel(EXCEL_PATH, sheet_name=SHEET_NAME, skiprows=1)
+        df = df.iloc[:, 1:]  # buang kolom index pertama
+
+        df1 = df[
+                (df['BLOCK HOURS'] > 0) & 
+                (df['ASK (000)'] > 0) &
+                (df['LANDING'] > 0) &
+                (df['HANDLING'] > 0) &
+                (df['AIR TRAFFIC CONTROL'] > 0)
+            ].copy()
+        
+        RENAME_MAP = {
+            'ATK (000)': 'ATK_000',
+            'ATK PASSENGER (000)': 'ATK_PASSENGER_000',
+            'BLOCK HOURS': 'BLOCK_HOURS',
+            'AIRCRAFT TYPE GROUPING': 'AIRCRAFT_TYPE_GROUPING',
+            'FLIGHT ROUTE': 'FLIGHT_ROUTE',
+            'AC REG': 'AC_REG',
+            'AIRCRAFT TYPE': 'AIRCRAFT_TYPE'
+        }
+
+        df1 = df1.rename(columns=RENAME_MAP)
+        return df1
+    
+    df1 = load_training_data()
+    X = df1[SELECTED_FEATURES_LANDING].copy()
+    y = df1['LANDING'].copy()
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=25)
+    
+    encoder = OneHotEncoder(handle_unknown='ignore', sparse_output=False)
+    encoder.fit(X_train[CATEGORICAL_COLS_LANDING])
+
+    X_train_encoded = encoder.transform(X_train[CATEGORICAL_COLS_LANDING])
+    X_test_encoded = encoder.transform(X_test[CATEGORICAL_COLS_LANDING])
+
+    encoded_cols = encoder.get_feature_names_out(CATEGORICAL_COLS_LANDING)
+
+    X_train_encoded = pd.DataFrame(X_train_encoded, columns=encoded_cols, index=X_train.index)
+    X_test_encoded = pd.DataFrame(X_test_encoded, columns=encoded_cols, index=X_test.index)
+
+    X_train_final = pd.concat([X_train[NUMERICAL_COLS_LANDING], X_train_encoded], axis=1)
+    X_test_final = pd.concat([X_test[NUMERICAL_COLS_LANDING], X_test_encoded], axis=1)
+
+    model = XGBRegressor(n_estimators=2000, max_depth=6, learning_rate=0.05, n_jobs=-1, objective="reg:squarederror")
+    model.fit(X_train_final, y_train)
+
+    y_pred = model.predict(X_test_final)
+
+    mape = mean_absolute_percentage_error(y_test, y_pred)
+
+    rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+    
+    artifacts = {
+        "model": model,
+        "encoder": encoder,
+        "categorical_cols": CATEGORICAL_COLS_LANDING,
+        "numeric_cols": NUMERICAL_COLS_LANDING,
+        "selected_features": SELECTED_FEATURES_LANDING,
+    }
+
+    os.makedirs(os.path.dirname(LANDING_MODEL_PATH), exist_ok=True)
+    
+    joblib.dump(artifacts, LANDING_MODEL_PATH)
+    
+    _landing_model_artifacts = artifacts  # cache di memori
+    
+    return {
+        "mape": float(mape),
+        "mape_percent": float(mape * 100.0),
+        "rmse": float(rmse),
+        "n_train": int(len(X_train)),
+        "n_test": int(len(X_test)),
+    }
+
+# HANDLING
+def train_handling_model():
+    """Train, simpan artifacts, dan return metrics."""
+    global _handling_model_artifacts
+     
+    def load_training_data() -> pd.DataFrame:
+        if not os.path.exists(EXCEL_PATH):
+            raise RuntimeError(f"File Excel tidak ditemukan: {EXCEL_PATH}")
+
+        df = pd.read_excel(EXCEL_PATH, sheet_name=SHEET_NAME, skiprows=1)
+        df = df.iloc[:, 1:]  # buang kolom index pertama
+
+        df1 = df[
+                (df['BLOCK HOURS'] > 0) & 
+                (df['ASK (000)'] > 0) &
+                (df['LANDING'] > 0) &
+                (df['HANDLING'] > 0) &
+                (df['AIR TRAFFIC CONTROL'] > 0)
+            ].copy()
+        
+        RENAME_MAP = {
+            'ATK (000)': 'ATK_000',
+            'ATK PASSENGER (000)': 'ATK_PASSENGER_000',
+            'BLOCK HOURS': 'BLOCK_HOURS',
+            'FLIGHT ROUTE': 'FLIGHT_ROUTE',
+            'AC REG': 'AC_REG'
+        }
+
+        df1 = df1.rename(columns=RENAME_MAP)
+        return df1
+    
+    df1 = load_training_data()
+    X = df1[SELECTED_FEATURES_HANDLING].copy()
+    y = df1['HANDLING'].copy()
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=25)
+    
+    encoder = OneHotEncoder(handle_unknown='ignore', sparse_output=False)
+    encoder.fit(X_train[CATEGORICAL_COLS_HANDLING])
+
+    X_train_encoded = encoder.transform(X_train[CATEGORICAL_COLS_HANDLING])
+    X_test_encoded = encoder.transform(X_test[CATEGORICAL_COLS_HANDLING])
+
+    encoded_cols = encoder.get_feature_names_out(CATEGORICAL_COLS_HANDLING)
+
+    X_train_encoded = pd.DataFrame(X_train_encoded, columns=encoded_cols, index=X_train.index)
+    X_test_encoded = pd.DataFrame(X_test_encoded, columns=encoded_cols, index=X_test.index)
+
+    X_train_final = pd.concat([X_train[NUMERICAL_COLS_HANDLING], X_train_encoded], axis=1)
+    X_test_final = pd.concat([X_test[NUMERICAL_COLS_HANDLING], X_test_encoded], axis=1)
+
+    model = XGBRegressor(n_estimators=2000, max_depth=6, learning_rate=0.05, n_jobs=-1, objective="reg:squarederror")
+    model.fit(X_train_final, y_train)
+
+    y_pred = model.predict(X_test_final)
+
+    mape = mean_absolute_percentage_error(y_test, y_pred)
+
+    rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+    
+    artifacts = {
+        "model": model,
+        "encoder": encoder,
+        "categorical_cols": CATEGORICAL_COLS_HANDLING,
+        "numeric_cols": NUMERICAL_COLS_HANDLING,
+        "selected_features": SELECTED_FEATURES_HANDLING,
+    }
+
+    os.makedirs(os.path.dirname(HANDLING_MODEL_PATH), exist_ok=True)
+    
+    joblib.dump(artifacts, HANDLING_MODEL_PATH)
+    
+    _handling_model_artifacts = artifacts  # cache di memori
+    
+    return {
+        "mape": float(mape),
+        "mape_percent": float(mape * 100.0),
+        "rmse": float(rmse),
+        "n_train": int(len(X_train)),
+        "n_test": int(len(X_test)),
+    }
+
+
+# ATC
+def train_atc_model():
+    """Train, simpan artifacts, dan return metrics."""
+    global _atc_model_artifacts
+     
+    def load_training_data() -> pd.DataFrame:
+        if not os.path.exists(EXCEL_PATH):
+            raise RuntimeError(f"File Excel tidak ditemukan: {EXCEL_PATH}")
+
+        df = pd.read_excel(EXCEL_PATH, sheet_name=SHEET_NAME, skiprows=1)
+        df = df.iloc[:, 1:]  # buang kolom index pertama
+
+        df1 = df[
+                (df['BLOCK HOURS'] > 0) & 
+                (df['ASK (000)'] > 0) &
+                (df['LANDING'] > 0) &
+                (df['HANDLING'] > 0) &
+                (df['AIR TRAFFIC CONTROL'] > 0)
+            ].copy()
+        
+        RENAME_MAP = {
+            'ATK (000)': 'ATK_000',
+            'ATK PASSENGER (000)': 'ATK_PASSENGER_000',
+            'BLOCK HOURS': 'BLOCK_HOURS',
+            'AIRCRAFT TYPE GROUPING': 'AIRCRAFT_TYPE_GROUPING',
+            'FLIGHT ROUTE': 'FLIGHT_ROUTE',
+            'AC REG': 'AC_REG',
+            'AIRCRAFT TYPE': 'AIRCRAFT_TYPE'
+        }
+
+        df1 = df1.rename(columns=RENAME_MAP)
+        return df1
+    
+    df1 = load_training_data()
+    X = df1[SELECTED_FEATURES_ATC].copy()
+    y = df1['HANDLING'].copy()
+
+    X_train, X_test, y_train, y_test = train_test_split(
+        X, y, test_size=0.2, random_state=25)
+    
+    encoder = OneHotEncoder(handle_unknown='ignore', sparse_output=False)
+    encoder.fit(X_train[CATEGORICAL_COLS_ATC])
+
+    X_train_encoded = encoder.transform(X_train[CATEGORICAL_COLS_ATC])
+    X_test_encoded = encoder.transform(X_test[CATEGORICAL_COLS_ATC])
+
+    encoded_cols = encoder.get_feature_names_out(CATEGORICAL_COLS_ATC)
+
+    X_train_encoded = pd.DataFrame(X_train_encoded, columns=encoded_cols, index=X_train.index)
+    X_test_encoded = pd.DataFrame(X_test_encoded, columns=encoded_cols, index=X_test.index)
+
+    X_train_final = pd.concat([X_train[NUMERICAL_COLS_ATC], X_train_encoded], axis=1)
+    X_test_final = pd.concat([X_test[NUMERICAL_COLS_ATC], X_test_encoded], axis=1)
+
+    model = XGBRegressor(n_estimators=2000, max_depth=6, learning_rate=0.05, n_jobs=-1, objective="reg:squarederror")
+    model.fit(X_train_final, y_train)
+
+    y_pred = model.predict(X_test_final)
+
+    mape = mean_absolute_percentage_error(y_test, y_pred)
+
+    rmse = np.sqrt(mean_squared_error(y_test, y_pred))
+    
+    artifacts = {
+        "model": model,
+        "encoder": encoder,
+        "categorical_cols": CATEGORICAL_COLS_ATC,
+        "numeric_cols": NUMERICAL_COLS_ATC,
+        "selected_features": SELECTED_FEATURES_ATC,
+    }
+
+    os.makedirs(os.path.dirname(ATC_MODEL_PATH), exist_ok=True)
+    
+    joblib.dump(artifacts, ATC_MODEL_PATH)
+    
+    _atc_model_artifacts = artifacts  # cache di memori
+    
+    return {
+        "mape": float(mape),
+        "mape_percent": float(mape * 100.0),
+        "rmse": float(rmse),
+        "n_train": int(len(X_train)),
+        "n_test": int(len(X_test)),
+    }
+
+
+
+
 # =====================================================================
 # FASTAPI ENDPOINTS
 # =====================================================================
@@ -2248,6 +2660,80 @@ def predict_obsc(req: OBSCPredictRequest):
         "catering": CateringPredictResponse(predictions=preds_catering)
     }
 
+@app.post("/predict_mr", response_model=MRPredictResponse)
+def predict_mr(req: MRPredictRequest):
+    try:
+        artifacts = load_mr_artifacts()
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
+    model = artifacts["model"]
+    encoder = artifacts["encoder"]
+    cat_cols = artifacts["categorical_cols"]
+    num_cols = artifacts["numeric_cols"]
+    
+    # Convert request -> DataFrame
+    df = pd.DataFrame([r.dict() for r in req.records])
+    
+    # Calculate derived feature (HARUS SAMA dengan logic training)
+    df['FH_per_Cycle'] = df.apply(
+        lambda x: x['FLIGHT_HOURS'] / x['NUMBER_OF_LANDING'] if x['NUMBER_OF_LANDING'] > 0 else 0, 
+        axis=1
+    )
+    
+    # Preprocessing
+    df_cat = df[cat_cols]
+    df_num = df[num_cols]
+    
+    df_cat_enc = encoder.transform(df_cat)
+    encoded_cols = encoder.get_feature_names_out(cat_cols)
+    
+    X_final = pd.concat([
+        df_num.reset_index(drop=True),
+        pd.DataFrame(df_cat_enc, columns=encoded_cols)
+    ], axis=1)
+    
+    preds = model.predict(X_final)
+    return MRPredictResponse(predictions=[float(p) for p in preds])
+
+@app.post("/predict_crew_fata", response_model=CrewFATAPredictResponse)
+def predict_crew_fata(req: CrewFATAPredictRequest):
+    try:
+        # Load artifacts
+        art_cockpit = load_crew_artifacts("cockpit")
+        art_cabin = load_crew_artifacts("cabin")
+
+        # Prepare Data
+        df = pd.DataFrame([r.dict() for r in req.records])
+
+        # Preprocessing (Sama untuk kedua model karena fiturnya sama)
+        encoder = art_cockpit["encoder"] # Encoder bisa pakai salah satu asalkan fiturnya sama persis
+        cat_cols = art_cockpit["categorical_cols"]
+        num_cols = art_cockpit["numeric_cols"]
+
+        df_cat = df[cat_cols]
+        df_num = df[num_cols]
+
+        df_cat_enc = encoder.transform(df_cat)
+        enc_cols = encoder.get_feature_names_out(cat_cols)
+
+        X_final = pd.concat([
+            df_num.reset_index(drop=True),
+            pd.DataFrame(df_cat_enc, columns=enc_cols)
+        ], axis=1)
+
+        # Predict
+        pred_cockpit = art_cockpit["model"].predict(X_final)
+        pred_cabin = art_cabin["model"].predict(X_final)
+
+        return {
+            "cockpit_predictions": [float(p) for p in pred_cockpit],
+            "cabin_predictions": [float(p) for p in pred_cabin]
+        }
+
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
 @app.post("/predict_bofsc", response_model=BOFSCPredictResponse)
 def predict_bofsc(req: BOFSCPredictRequest):
     try:
@@ -2317,6 +2803,146 @@ def predict_bofsc(req: BOFSCPredictRequest):
     return {
         "administration_bo": AdminBOPredictResponse(predictions=preds_admin_bo),
         "station": StationPredictResponse(predictions=preds_station)
+    }
+
+@app.post("/predict_payroll", response_model=PayrollPredictResponse)
+def predict_payroll(req: PayrollPredictRequest):
+    try:
+        # Load Models
+        art_cp = load_payroll_artifacts("cockpit")
+        art_cb = load_payroll_artifacts("cabin")
+        
+        df = pd.DataFrame([r.dict() for r in req.records])
+        
+        # PREDICT COCKPIT
+        enc_cp = art_cp["encoder"]
+        df_cat_cp = pd.DataFrame(enc_cp.transform(df[CATEGORICAL_COLS_PAYROLL]), 
+                                 columns=enc_cp.get_feature_names_out(CATEGORICAL_COLS_PAYROLL))
+        df_num_cp = df[art_cp["numeric"]].reset_index(drop=True)
+        X_cp = pd.concat([df_num_cp, df_cat_cp], axis=1)
+        
+        pred_log_cp = art_cp["model"].predict(X_cp)
+        pred_real_cp = np.expm1(pred_log_cp) 
+        
+        # PREDICT CABIN 
+        enc_cb = art_cb["encoder"]
+        df_cat_cb = pd.DataFrame(enc_cb.transform(df[CATEGORICAL_COLS_PAYROLL]), 
+                                 columns=enc_cb.get_feature_names_out(CATEGORICAL_COLS_PAYROLL))
+        df_num_cb = df[art_cb["numeric"]].reset_index(drop=True)
+        X_cb = pd.concat([df_num_cb, df_cat_cb], axis=1)
+        
+        pred_log_cb = art_cb["model"].predict(X_cb)
+        pred_real_cb = np.expm1(pred_log_cb) 
+        
+        return {
+            "cockpit_person_cost": [float(p) for p in pred_real_cp],
+            "cabin_person_cost": [float(p) for p in pred_real_cb]
+        }
+        
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.post("/predict_afgh", response_model=AFGHPredictResponse)
+def predict_afgh(req: AFGHPredictRequest):
+    try:
+        artifacts_landing = load_landing_artifacts()
+        artifacts_handling = load_handling_artifacts()
+        artifacts_atc = load_atc_artifacts()
+    except RuntimeError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    
+    model_landing = artifacts_landing["model"]
+    encode_landing = artifacts_landing["encoder"]
+    categorical_landing = artifacts_landing["categorical_cols"]
+    numeric_cols_landing = artifacts_landing["numeric_cols"]
+
+    model_handling = artifacts_handling["model"]
+    encoder_handling = artifacts_handling["encoder"]
+    categorical_cols_handling = artifacts_handling["categorical_cols"]
+    numeric_cols_handling = artifacts_handling["numeric_cols"]
+
+    model_atc = artifacts_atc["model"]
+    encoder_atc = artifacts_atc["encoder"]
+    categorical_cols_atc = artifacts_atc["categorical_cols"]
+    numeric_cols_atc = artifacts_atc["numeric_cols"]
+
+
+    # Pydantic -> DataFrame
+    data_landing = pd.DataFrame([r.dict() for r in req.landing.records])
+    data_handling =pd.DataFrame([r.dict() for r in req.handling.records])
+    data_atc =pd.DataFrame([r.dict() for r in req.atc.records])
+
+    # Pastikan semua fitur ada
+    missing = [c for c in SELECTED_FEATURES_LANDING if c not in data_landing.columns]
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Fitur berikut hilang di request: {missing}",
+        )
+    
+    missing = [c for c in SELECTED_FEATURES_HANDLING if c not in data_handling.columns]
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Fitur berikut hilang di request: {missing}",
+        )
+    
+    missing = [c for c in SELECTED_FEATURES_ATC if c not in data_atc.columns]
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Fitur berikut hilang di request: {missing}",
+        )
+
+    # LANDING
+    df_cat = data_landing[categorical_landing]
+    df_num = data_landing[numeric_cols_landing]
+
+    df_cat_enc = encode_landing.transform(df_cat)
+    enc_cols = encode_landing.get_feature_names_out(categorical_landing)
+
+    df_cat_enc_df = pd.DataFrame(df_cat_enc, columns=enc_cols, index=data_landing.index)
+
+    X_final = pd.concat([df_num, df_cat_enc_df], axis=1)
+
+    preds_landing = model_landing.predict(X_final)
+    preds_landing = [float(p) for p in preds_landing]
+
+    # HANDLING
+
+    df_cat = data_handling[categorical_cols_handling]
+    df_num = data_handling[numeric_cols_handling]
+
+    df_cat_enc = encoder_handling.transform(df_cat)
+    enc_cols = encoder_handling.get_feature_names_out(categorical_cols_handling)
+
+    df_cat_enc_df = pd.DataFrame(df_cat_enc, columns=enc_cols, index=data_handling.index)
+
+    X_final = pd.concat([df_num, df_cat_enc_df], axis=1)
+
+    preds_handling = model_handling.predict(X_final)
+    preds_handling = [float(p) for p in preds_handling]
+
+    # ATC
+
+    df_cat = data_atc[categorical_cols_atc]
+    df_num = data_atc[numeric_cols_atc]
+
+    df_cat_enc = encoder_atc.transform(df_cat)
+    enc_cols = encoder_atc.get_feature_names_out(categorical_cols_atc)
+
+    df_cat_enc_df = pd.DataFrame(df_cat_enc, columns=enc_cols, index=data_atc.index)
+
+    X_final = pd.concat([df_num, df_cat_enc_df], axis=1)
+
+    preds_atc = model_atc.predict(X_final)
+    preds_atc = [float(p) for p in preds_atc]
+
+
+    return {
+        "landing": LandingPredictResponse(predictions=preds_landing),
+        "handling": HandlingPredictResponse(predictions=preds_handling),
+        "atc": ATCPredictResponse(predictions=preds_atc)
     }
 
 # =======================
@@ -2400,42 +3026,6 @@ def train_mr():
         print(f"Error Training MR: {e}") # Print ke terminal untuk debug
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/predict_mr", response_model=MRPredictResponse)
-def predict_mr(req: MRPredictRequest):
-    try:
-        artifacts = load_mr_artifacts()
-    except RuntimeError as e:
-        raise HTTPException(status_code=400, detail=str(e))
-    
-    model = artifacts["model"]
-    encoder = artifacts["encoder"]
-    cat_cols = artifacts["categorical_cols"]
-    num_cols = artifacts["numeric_cols"]
-    
-    # Convert request -> DataFrame
-    df = pd.DataFrame([r.dict() for r in req.records])
-    
-    # Calculate derived feature (HARUS SAMA dengan logic training)
-    df['FH_per_Cycle'] = df.apply(
-        lambda x: x['FLIGHT_HOURS'] / x['NUMBER_OF_LANDING'] if x['NUMBER_OF_LANDING'] > 0 else 0, 
-        axis=1
-    )
-    
-    # Preprocessing
-    df_cat = df[cat_cols]
-    df_num = df[num_cols]
-    
-    df_cat_enc = encoder.transform(df_cat)
-    encoded_cols = encoder.get_feature_names_out(cat_cols)
-    
-    X_final = pd.concat([
-        df_num.reset_index(drop=True),
-        pd.DataFrame(df_cat_enc, columns=encoded_cols)
-    ], axis=1)
-    
-    preds = model.predict(X_final)
-    return MRPredictResponse(predictions=[float(p) for p in preds])
-
 # =============================
 # CREW FATA
 # =============================
@@ -2460,43 +3050,7 @@ def train_crew_fata():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/predict_crew_fata", response_model=CrewFATAPredictResponse)
-def predict_crew_fata(req: CrewFATAPredictRequest):
-    try:
-        # Load artifacts
-        art_cockpit = load_crew_artifacts("cockpit")
-        art_cabin = load_crew_artifacts("cabin")
 
-        # Prepare Data
-        df = pd.DataFrame([r.dict() for r in req.records])
-
-        # Preprocessing (Sama untuk kedua model karena fiturnya sama)
-        encoder = art_cockpit["encoder"] # Encoder bisa pakai salah satu asalkan fiturnya sama persis
-        cat_cols = art_cockpit["categorical_cols"]
-        num_cols = art_cockpit["numeric_cols"]
-
-        df_cat = df[cat_cols]
-        df_num = df[num_cols]
-
-        df_cat_enc = encoder.transform(df_cat)
-        enc_cols = encoder.get_feature_names_out(cat_cols)
-
-        X_final = pd.concat([
-            df_num.reset_index(drop=True),
-            pd.DataFrame(df_cat_enc, columns=enc_cols)
-        ], axis=1)
-
-        # Predict
-        pred_cockpit = art_cockpit["model"].predict(X_final)
-        pred_cabin = art_cabin["model"].predict(X_final)
-
-        return {
-            "cockpit_predictions": [float(p) for p in pred_cockpit],
-            "cabin_predictions": [float(p) for p in pred_cabin]
-        }
-
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
 
 # =============================
 # ADMINISTRATION BO AND STATION 
@@ -2512,11 +3066,6 @@ def train_bofsc():
                 "station": StationTrainResponse(**metrics_station)}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
-
-
-
-
-
 
 #=============================================
 # PAYROLL
@@ -2540,42 +3089,32 @@ def train_payroll():
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/predict_payroll", response_model=PayrollPredictResponse)
-def predict_payroll(req: PayrollPredictRequest):
+
+
+# =============================
+# AIRPORT FEES AND GROUND HANDLING
+# =============================
+@app.post("/train_afgh", response_model=AFGHTrainResponse)
+def train_afgh():
+    """Latih ulang model dari file Excel."""
     try:
-        # Load Models
-        art_cp = load_payroll_artifacts("cockpit")
-        art_cb = load_payroll_artifacts("cabin")
-        
-        df = pd.DataFrame([r.dict() for r in req.records])
-        
-        # PREDICT COCKPIT
-        enc_cp = art_cp["encoder"]
-        df_cat_cp = pd.DataFrame(enc_cp.transform(df[CATEGORICAL_COLS_PAYROLL]), 
-                                 columns=enc_cp.get_feature_names_out(CATEGORICAL_COLS_PAYROLL))
-        df_num_cp = df[art_cp["numeric"]].reset_index(drop=True)
-        X_cp = pd.concat([df_num_cp, df_cat_cp], axis=1)
-        
-        pred_log_cp = art_cp["model"].predict(X_cp)
-        pred_real_cp = np.expm1(pred_log_cp) 
-        
-        # PREDICT CABIN 
-        enc_cb = art_cb["encoder"]
-        df_cat_cb = pd.DataFrame(enc_cb.transform(df[CATEGORICAL_COLS_PAYROLL]), 
-                                 columns=enc_cb.get_feature_names_out(CATEGORICAL_COLS_PAYROLL))
-        df_num_cb = df[art_cb["numeric"]].reset_index(drop=True)
-        X_cb = pd.concat([df_num_cb, df_cat_cb], axis=1)
-        
-        pred_log_cb = art_cb["model"].predict(X_cb)
-        pred_real_cb = np.expm1(pred_log_cb) 
-        
-        return {
-            "cockpit_person_cost": [float(p) for p in pred_real_cp],
-            "cabin_person_cost": [float(p) for p in pred_real_cb]
-        }
-        
+        metrics_landing = train_landing_model()
+        metrics_handling = train_handling_model()
+        metrics_atc = train_atc_model()
+
+        return {"landing": LandingTrainResponse(**metrics_landing),
+                "handling": HandlingTrainResponse(**metrics_handling),
+                "atc": ATCTrainResponse(**metrics_atc)}
     except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        tb = traceback.format_exc()
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "error": str(e),
+                "traceback": tb
+            }
+        )
+
 
 # ==================
 
